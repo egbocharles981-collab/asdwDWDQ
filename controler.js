@@ -14,9 +14,9 @@ const LOG_FILE = 'trading-log.txt';
 const RECV_WINDOW = 5000;
 
 // === VALIDATION ===
-if (!API_KEY || !API_SECRET) {
-  console.error('❌ Missing API credentials in .env file');
-  process.exit(1);
+const HAS_API_CREDS = Boolean(API_KEY && API_SECRET);
+if (!HAS_API_CREDS) {
+  console.warn('⚠️ API credentials not found in environment; trade execution will be disabled.');
 }
 
 function buildQuery(params) {
@@ -178,6 +178,12 @@ exports.executeTrade = async (req, res) => {
   };
 
   // Build auth params for signature
+  if (!HAS_API_CREDS) {
+    const msg = 'API credentials are not configured on this server. Trading is disabled.';
+    logToFile(`⚠️ ${msg}`);
+    return res.status(503).json({ error: msg });
+  }
+
   const jsonBody = JSON.stringify(params);
   const signature = signPostRequest(timestamp, jsonBody);
 
