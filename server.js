@@ -29,10 +29,11 @@ app.get('/', (req, res) => {
 });
 
 // Fallback: serve index.html for any non-API route (helps client-side routing)
-app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api')) return next();
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// Note: removed broad SPA fallback because certain environments
+// can throw path-to-regexp errors when mounting wildcard routes.
+// Static files are served from `public/`, so pages like `/ip.html`
+// will be available directly. If you need client-side routing,
+// re-add a more specific fallback later.
 
 // ✅ Start the server
 app.listen(port, () => {
