@@ -6,7 +6,16 @@ const crypto = require('crypto');
 
 // ✅ Import separate controllers
 const controler = require('./controler');
-const futuresController = require('./autotrader');
+const path = require('path');
+const PROJECT_ROOT = process.cwd();
+// Try to require autotrader from project root to handle Render's src/ working dir
+let futuresController;
+try {
+  futuresController = require(path.join(PROJECT_ROOT, 'autotrader.js'));
+} catch (e) {
+  // fallback to local relative require
+  futuresController = require('./autotrader');
+}
 
 // Diagnostic: log futuresController shape (helps debug on Render)
 try {
