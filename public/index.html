@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Swift Algo Auto Trader</title>
+  <title>charles Auto Trader</title>
 
   <!-- Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
@@ -59,26 +59,7 @@
       border-radius: 8px;
       font-size: 14px;
     }
-    #authOverlay {
-      position: fixed;
-      inset: 0;
-      background: #0d1117;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      z-index: 9999;
-    }
-    #authOverlay input, #authOverlay button {
-      margin-top: 10px;
-      font-size: 16px;
-    }
-    #authOverlay input {
-      background: #161b22;
-      border: 1px solid #30363d;
-      width: 220px;
-    }
-    #authError { color: #f85149; display: none; margin-top: 10px; }
+    /* auth overlay removed */
     footer {
       background: #161b22;
       padding: 15px;
@@ -91,16 +72,24 @@
 </head>
 <body>
 
-<!-- Auth Screen -->
-<div id="authOverlay">
-  <h2>Enter Password</h2>
-  <input type="password" id="passwordInput" placeholder="Password" />
-  <button onclick="checkPassword()">Login</button>
-  <p id="authError">Wrong password</p>
+<!-- Auth screen removed -->
+
+<!-- Quick links -->
+<div style="padding:12px;">
+  <a href="ip.html" style="text-decoration:none;">
+    <button style="max-width:220px;">Open IP Page</button>
+  </a>
+</div>
+
+<!-- Server config (hybrid file:// support) -->
+<div style="padding:12px;background:#0b1115;color:#9aa4ad;">
+  <label for="serverInput">Server base URL:</label>
+  <input id="serverInput" placeholder="Auto (same origin) or enter e.g. https://example.com" style="width:100%;margin-top:6px;padding:8px;border-radius:6px;background:#0d1117;color:#c9d1d9;border:1px solid #222;" />
+  <small style="display:block;margin-top:6px;color:#78818a">If opened locally (file://), enter the backend URL (include https:// or http://). Value is saved in localStorage.</small>
 </div>
 
 <!-- Dashboard -->
-<div class="dashboard" id="dashboard" style="display:none;">
+<div class="dashboard" id="dashboard" style="display:grid;">
   <!-- Chart -->
   <div class="card">
     <h2>SMA Crossover Chart</h2>
@@ -120,13 +109,15 @@
     </select>
 
     <label>Quantity</label>
-    <input type="number" id="qtyInput" step="0.0001" value="0.001" />
+    <input type="number" id="qtyInput" step="0.001" value="0.001" />
 
     <label>Timeframe</label>
     <select id="timeframeSelect">
       <option value="60000">1 Minute</option>
       <option value="300000" selected>5 Minutes</option>
       <option value="900000">15 Minutes</option>
+      <option value="3600000">1 Hour</option>
+
     </select>
 
     <p>Status: <strong id="status">Stopped</strong></p>
@@ -143,35 +134,72 @@
 </footer>
 
 <script>
-const PASSWORD = 'just4pat';
-const API_BASE_URL = 'https://autopatobot.onrender.com';
-let chart, tradingInterval, autoTrading = false, isLoggedIn = false, position = null;
-const closes = [], maxCandles = 100;
-let lastCandleTime = 0;
+/* === CONFIG === */
 
-function checkPassword() {
-  const pass = document.getElementById('passwordInput').value;
-  if (pass === PASSWORD) {
-    document.getElementById('authOverlay').style.display = 'none';
-    document.getElementById('dashboard').style.display = 'grid';
-    isLoggedIn = true;
-    initChart();
-  } else {
-    document.getElementById('authError').style.display = 'block';
-  }
+// API base helper: use saved server input when provided, otherwise same origin
+function getApiBaseUrl() {
+  const saved = localStorage.getItem('api_server') || '';
+  if (saved && saved.trim()) return saved.replace(/\/$/, '');
+  if (location.protocol === 'http:' || location.protocol === 'https:') return location.origin;
+  return '';
 }
 
+// Expose and bind server input
+const serverInputEl = document.getElementById('serverInput');
+if (serverInputEl) {
+  const v = localStorage.getItem('api_server');
+  if (v) serverInputEl.value = v;
+  serverInputEl.addEventListener('change', () => {
+    localStorage.setItem('api_server', serverInputEl.value.trim());
+  });
+}
+let chart, autoTrading = false, isLoggedIn = false;
+
+// auth removed — initialize chart on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', () => {
+  try { initChart(); } catch (e) { console.warn('Chart init failed', e); }
+});
+
+/* === CHART INIT === */
 function initChart() {
-  chart = new Chart(document.getElementById('tradeChart').getContext('2d'), {
+  const ctx = document.getElementById('tradeChart').getContext('2d');
+  chart = new Chart(ctx, {
     type: 'candlestick',
     data: {
       datasets: [
-        { label: 'Price', data: [] },
-        { label: 'SMA 5', data: [], type: 'line', borderColor: '#ff7b72', pointRadius: 0 },
-        { label: 'SMA 10', data: [], type: 'line', borderColor: '#f2cc60', pointRadius: 0 }
+        {
+          label: 'Price',
+          data: [],
+          borderColor: '#58a6ff',
+          color: {
+            up: '#16c784',
+            down: '#ea3943',
+            unchanged: '#8b949e'
+          }
+        },
+        {
+          label: 'SMA 5',
+          data: [],
+          type: 'line',
+          borderColor: '#ff7b72',
+          borderWidth: 1.5,
+          tension: 0.2,
+          pointRadius: 0
+        },
+        {
+          label: 'SMA 10',
+          data: [],
+          type: 'line',
+          borderColor: '#f2cc60',
+          borderWidth: 1.5,
+          tension: 0.2,
+          pointRadius: 0
+        }
       ]
     },
     options: {
+      responsive: true,
+      animation: false,
       plugins: { legend: { labels: { color: '#c9d1d9' } } },
       scales: {
         x: { type: 'time', time: { unit: 'minute' }, ticks: { color: '#8b949e' } },
@@ -179,71 +207,113 @@ function initChart() {
       }
     }
   });
-  startTradingLoop();
 }
 
+/* === FETCH CANDLES (Backend provides SMA values too) === */
 async function fetchCandle() {
   const symbol = document.getElementById('pairSelect').value;
   const intervalMs = parseInt(document.getElementById('timeframeSelect').value);
-  const intervalMap = { 60000: '1m', 300000: '5m', 900000: '15m' };
-  const interval = intervalMap[intervalMs] || '5m';
+  
+  const intervalMap = {
+    60000: '1m',
+    300000: '5m',
+    900000: '15m',
+    3600000: '1h' // ✅ Added 1-hour option
+  };
+const interval = intervalMap[intervalMs] || '5m';
 
   try {
-    const res = await axios.get(`${API_BASE_URL}/api/candle?symbol=${symbol}&interval=${interval}`);
-    const { t, o, h, l, c } = res.data;
-    if (t === lastCandleTime) return null;
-    lastCandleTime = t;
+    const base = getApiBaseUrl();
+    if (!base) {
+      logTrade('⚠️ API base URL not set or page served via file:// — enter backend URL above.');
+      return;
+    }
+    const res = await axios.get(`${base}/api/candle?symbol=${symbol}&interval=${interval}`);
+    const candles = res.data.candles || res.data.result?.list || [];
 
-    const candle = { t, o, h, l, c };
-    closes.push(c);
-    if (closes.length > maxCandles) closes.shift();
-    updateChart(candle);
-    return candle;
+    if (!candles || candles.length === 0) {
+      logTrade('⚠️ No candles returned from backend.');
+      return;
+    }
+
+    const candleData = candles.map(c => ({
+      x: c.time,
+      o: c.open,
+      h: c.high,
+      l: c.low,
+      c: c.close
+    }));
+
+    const sma5Data = candles
+      .filter(c => c.sma5)
+      .map(c => ({ x: c.time, y: c.sma5 }));
+
+    const sma10Data = candles
+      .filter(c => c.sma10)
+      .map(c => ({ x: c.time, y: c.sma10 }));
+
+    updateChart(candleData, sma5Data, sma10Data);
   } catch (err) {
-    console.error('Candle fetch failed:', err);
-    return null;
+    console.error('❌ Candle fetch failed:', err.response?.data || err.message);
   }
 }
 
-function calculateSMA(arr, len) {
-  if (arr.length < len) return null;
-  return arr.slice(-len).reduce((sum, val) => sum + val, 0) / len;
-}
+/* === UPDATE CHART === */
+function updateChart(candles, sma5, sma10) {
+  if (!chart) return;
 
-function updateChart(candle) {
-  const [cs, sma5, sma10] = chart.data.datasets;
-  cs.data.push(candle);
-  if (cs.data.length > maxCandles) {
-    cs.data.shift();
-    sma5.data.shift();
-    sma10.data.shift();
-  }
-  const s5 = calculateSMA(closes, 5);
-  const s10 = calculateSMA(closes, 10);
-  if (s5) sma5.data.push({ x: candle.t, y: s5 });
-  if (s10) sma10.data.push({ x: candle.t, y: s10 });
+  chart.data.datasets[0].data = candles;
+  chart.data.datasets[1].data = sma5;
+  chart.data.datasets[2].data = sma10;
+
   chart.update();
 }
 
-function getSMASignal() {
-  if (closes.length < 11) return 'HOLD';
-  const sma5 = calculateSMA(closes, 5);
-  const sma10 = calculateSMA(closes, 10);
-  const prev5 = calculateSMA(closes.slice(0, -1), 5);
-  const prev10 = calculateSMA(closes.slice(0, -1), 10);
-  if (prev5 <= prev10 && sma5 > sma10) return 'BUY';
-  if (prev5 >= prev10 && sma5 < sma10) return 'SELL';
-  return 'HOLD';
-}
+/* === TOGGLE AUTO TRADING === */
+let candleInterval;
 
-function executeTrade(action) {
+async function toggleTrading() {
+  autoTrading = !autoTrading;
+  const statusEl = document.getElementById('status');
+  const button = document.querySelector('.control-panel button');
   const symbol = document.getElementById('pairSelect').value;
-  const quantity = parseFloat(document.getElementById('qtyInput').value);
-  axios.post(`${API_BASE_URL}/api/trade`, { action, symbol, quantity })
-    .then(() => logTrade(`Trade executed: ${action.toUpperCase()}`))
-    .catch(err => logTrade(`Trade Error: ${err.response?.data?.error || err.message}`));
+  const intervalMs = parseInt(document.getElementById('timeframeSelect').value);
+  const intervalMap = { 60000: '1m', 300000: '5m', 900000: '15m' };
+  const interval = intervalMap[intervalMs] || '1m';
+
+  try {
+    if (autoTrading) {
+      const base = getApiBaseUrl();
+      if (!base) throw new Error('API base URL not available');
+      await axios.post(`${base}/api/futures/start`, { symbol, interval });
+      statusEl.innerText = 'Running';
+      button.innerText = 'Stop Auto Trading';
+      logTrade('🟢 Auto trading started on backend.');
+
+      fetchCandle(); // first immediate call
+
+      // 🕐 Refresh chart automatically every minute
+      candleInterval = setInterval(fetchCandle, 60 * 1000);
+    } else {
+      const base = getApiBaseUrl();
+      if (!base) throw new Error('API base URL not available');
+      await axios.post(`${base}/api/futures/stop`);
+      statusEl.innerText = 'Stopped';
+      button.innerText = 'Start Auto Trading';
+      logTrade('🔴 Auto trading stopped.');
+
+      // ❌ stop refreshing candles
+      clearInterval(candleInterval);
+    }
+  } catch (err) {
+    const msg = err.response?.data?.message || err.message;
+    logTrade(`⚠️ Error toggling auto trading: ${msg}`);
+    statusEl.innerText = 'Error';
+  }
 }
 
+
+/* === LOGGING === */
 function logTrade(msg) {
   const log = document.getElementById('tradeLog');
   const entry = document.createElement('div');
@@ -251,51 +321,8 @@ function logTrade(msg) {
   log.appendChild(entry);
   log.scrollTop = log.scrollHeight;
 }
-
-function toggleTrading() {
-  autoTrading = !autoTrading;
-  document.getElementById('status').innerText = autoTrading ? 'Running' : 'Stopped';
-  document.querySelector('.control-panel button').innerText = autoTrading ? 'Stop Auto Trading' : 'Start Auto Trading';
-  if (autoTrading) {
-    startTradingLoop();
-    tradingInterval = setInterval(startTradingLoop, parseInt(document.getElementById('timeframeSelect').value));
-  } else {
-    clearInterval(tradingInterval);
-  }
-}
-
-async function startTradingLoop() {
-  if (!isLoggedIn) return;
-  const candle = await fetchCandle();
-  if (!candle) return;
-
-  const signal = getSMASignal();
-  const now = new Date().toLocaleTimeString();
-  let actionText = `[${now}] Signal: ${signal}`;
-
-  if (signal !== 'HOLD' && !position) {
-    const entry = candle.c;
-    position = {
-      type: signal,
-      entry,
-      tp: signal === 'BUY' ? entry * 1.005 : entry * 0.995,
-      sl: signal === 'BUY' ? entry * 0.995 : entry * 1.005
-    };
-    actionText += ` | OPEN ${position.type} at $${entry.toFixed(2)} | TP: ${position.tp.toFixed(2)} | SL: ${position.sl.toFixed(2)}`;
-  } else if (position) {
-    const price = candle.c;
-    const hitTP = (position.type === 'BUY' && price >= position.tp) || (position.type === 'SELL' && price <= position.tp);
-    const hitSL = (position.type === 'BUY' && price <= position.sl) || (position.type === 'SELL' && price >= position.sl);
-    if (hitTP || hitSL) {
-      actionText += ` | ${hitTP ? 'TP' : 'SL'} HIT at $${price.toFixed(2)} | CLOSED ${position.type}`;
-      position = null;
-    } else {
-      actionText += ` | ${position.type} still open`;
-    }
-  }
-
-  logTrade(actionText);
-}
 </script>
+
+
 </body>
 </html>
