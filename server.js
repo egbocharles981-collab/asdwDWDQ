@@ -33,6 +33,11 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(PROJECT_ROOT, 'public', 'index.html'));
 });
 
+// Lightweight health endpoint for platform health checks
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 // Fallback: serve index.html for any non-API route (helps client-side routing)
 // Note: removed broad SPA fallback because certain environments
 // can throw path-to-regexp errors when mounting wildcard routes.
@@ -41,7 +46,8 @@ app.get('/', (req, res) => {
 // re-add a more specific fallback later.
 
 // ✅ Start the server
-app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(port, HOST, () => {
+  console.log(`🚀 Server running on ${HOST}:${port}`);
   console.log(`🌐 Visit your app at http://localhost:${port}`);
 });
