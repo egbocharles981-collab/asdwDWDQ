@@ -6,30 +6,32 @@ const path = require('path');
 const app = express();
 
 // Load port from env or default
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 5001;
 
 // ✅ Load trading controller (adjust path if needed)
 const tradeController = require('./controler');
+
+// ✅ Load routes file (you have routes.js, not folder)
+const tradeRoutes = require('./route');
 
 // ✅ Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public'))); // Serve frontend
 
+// ✅ Use your routes file (if it exports a router)
+app.use('/api', tradeRoutes);
+
 // ✅ Root Health Check
+// Serve the frontend index for root
 app.get('/', (req, res) => {
-  res.send('✅ AutoPatobot server is running!');
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ✅ Candle endpoint (Binance-backed)
-app.get('/api/candle', tradeController.getCandles);
-
-// ✅ Trade endpoint (executes real trade)
-app.post('/api/trade', tradeController.executeTrade);
-
-// ✅ Optional: return client host info
-app.get('/api/host', (req, res) => {
-  res.json({ host: req.headers.host });
+// Fallback: serve index.html for any non-API route (helps client-side routing)
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ✅ Start the server
