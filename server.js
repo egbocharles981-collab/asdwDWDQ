@@ -9,15 +9,20 @@ const app = express();
 const port = process.env.PORT || 5001;
 
 // ✅ Load trading controller (adjust path if needed)
-const tradeController = require('./controler');
+// Resolve project root (Render may run code from `/opt/render/project/src`)
+const PROJECT_ROOT = process.cwd();
+
+// Load trading controller using project root to avoid path issues on Render
+const tradeController = require(path.join(PROJECT_ROOT, 'controler.js'));
 
 // ✅ Load routes file (you have routes.js, not folder)
-const tradeRoutes = require('./route');
+// Load routes file using project root
+const tradeRoutes = require(path.join(PROJECT_ROOT, 'route.js'));
 
 // ✅ Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public'))); // Serve frontend
+app.use(express.static(path.join(PROJECT_ROOT, 'public'))); // Serve frontend
 
 // ✅ Use your routes file (if it exports a router)
 app.use('/api', tradeRoutes);
@@ -25,7 +30,7 @@ app.use('/api', tradeRoutes);
 // ✅ Root Health Check
 // Serve the frontend index for root
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(PROJECT_ROOT, 'public', 'index.html'));
 });
 
 // Fallback: serve index.html for any non-API route (helps client-side routing)
