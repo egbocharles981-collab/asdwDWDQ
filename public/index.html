@@ -128,6 +128,12 @@
   </div>
 </div>
 
+<!-- Balance display -->
+<div style="padding:12px;">
+  <button id="balBtn" style="max-width:220px;">Show Balance</button>
+  <div id="balOut" style="margin-top:8px;font-weight:700;color:#c9d1d9;">-</div>
+</div>
+
 <!-- Footer -->
 <footer>
   <strong>Disclaimer:</strong> Cryptocurrency trading involves risk. Use at your own discretion.
@@ -321,6 +327,27 @@ function logTrade(msg) {
   log.appendChild(entry);
   log.scrollTop = log.scrollHeight;
 }
+
+// Balance button handler
+document.addEventListener('DOMContentLoaded', () => {
+  const balBtn = document.getElementById('balBtn');
+  const balOut = document.getElementById('balOut');
+  if (balBtn) {
+    balBtn.addEventListener('click', async () => {
+      balOut.textContent = 'Loading...';
+      try {
+        const base = getApiBaseUrl();
+        const url = base ? `${base}/api/balance` : '/api/balance';
+        const res = await axios.get(url);
+        const t = res.data.total ?? 'N/A';
+        const a = res.data.available ?? 'N/A';
+        balOut.textContent = `Total: ${t} USDT — Available: ${a} USDT`;
+      } catch (err) {
+        balOut.textContent = 'Error: ' + (err.response?.data?.error || err.message);
+      }
+    });
+  }
+});
 </script>
 
 
