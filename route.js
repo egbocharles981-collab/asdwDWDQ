@@ -8,6 +8,16 @@ const crypto = require('crypto');
 const controler = require('./controler');
 const futuresController = require('./autotrader');
 
+// Diagnostic: log futuresController shape (helps debug on Render)
+try {
+  console.log('futuresController type:', typeof futuresController);
+  if (futuresController && typeof futuresController === 'object') {
+    console.log('futuresController keys:', Object.keys(futuresController));
+  }
+} catch (e) {
+  console.warn('Could not inspect futuresController:', e.message);
+}
+
 // === ROUTES ===
 
 // ✅ 1️⃣ Fetch latest candlestick data
@@ -33,24 +43,45 @@ router.post('/trade', async (req, res) => {
 // ✅ 3️⃣ Start the Futures trading watcher loop
 router.post('/futures/start', async (req, res) => {
   try {
-    futuresController.startTradingWatcher();
+    // Support different export shapes (commonjs object, default export, or function)
+    if (futuresController && typeof futuresController.startTradingWatcher === 'function') {
+      futuresController.startTradingWatcher();
+    } else if (futuresController && futuresController.default && typeof futuresController.default.startTradingWatcher === 'function') {
+      futuresController.default.startTradingWatcher();
+    } else if (typeof futuresController === 'function') {
+      // some builds export a single function
+      futuresController();
+    } else {
+      throw new Error('startTradingWatcher not found on futuresController');
+    }
+
     console.log('🚀 Trading watcher started');
     res.json({ success: true, message: 'Trading watcher started successfully.' });
   } catch (error) {
-    console.error('❌ Failed to start watcher:', error.message);
-    res.status(500).json({ success: false, message: 'Failed to start watcher', error: error.message });
+    console.error('❌ Failed to start watcher:', error && error.stack ? error.stack : error.message || error);
+    res.status(500).json({ success: false, message: 'Failed to start watcher', error: error.message || String(error) });
   }
 });
 
 // ✅ 4️⃣ Stop the Futures trading watcher loop
 router.post('/futures/stop', async (req, res) => {
   try {
-    futuresController.stopTradingWatcher();
+    if (futuresController && typeof futuresController.stopTradingWatcher === 'function') {
+      futuresController.stopTradingWatcher();
+    } else if (futuresController && futuresController.default && typeof futuresController.default.stopTradingWatcher === 'function') {
+      futuresController.default.stopTradingWatcher();
+    } else if (typeof futuresController === 'function') {
+      // cannot stop a function export
+      throw new Error('stopTradingWatcher not available on exported function');
+    } else {
+      throw new Error('stopTradingWatcher not found on futuresController');
+    }
+
     console.log('🛑 Trading watcher stopped');
     res.json({ success: true, message: 'Trading watcher stopped successfully.' });
   } catch (error) {
-    console.error('❌ Failed to stop watcher:', error.message);
-    res.status(500).json({ success: false, message: 'Failed to stop watcher', error: error.message });
+    console.error('❌ Failed to stop watcher:', error && error.stack ? error.stack : error.message || error);
+    res.status(500).json({ success: false, message: 'Failed to stop watcher', error: error.message || String(error) });
   }
 });
 
@@ -115,8 +146,10 @@ router.get('/balance', async (req, res) => {
     const available = usdt.walletBalance ?? usdt.available_balance ?? null;
     return res.json({ total, available });
   } catch (err) {
-    console.error('/balance error', err.message || err);
-    return res.status(500).json({ error: 'Failed to fetch balance', details: err.response?.data || err.message });
+    console.error('/balance error', err && err.response ? JSON.stringify({ status: err.response.status, data: err.response.data }) : (err.message || err));
+    const status = err.response?.status || 500;
+    const details = err.response?.data || err.message || String(err);
+    return res.status(status).json({ error: 'Failed to fetch balance', details });
   }
 });
 
