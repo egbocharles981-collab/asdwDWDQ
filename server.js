@@ -48,6 +48,15 @@ app.get('/health', (req, res) => {
 // ✅ Start the server
 const HOST = process.env.HOST || '0.0.0.0';
 app.listen(port, HOST, () => {
+  const fs = require('fs');
   console.log(`🚀 Server running on ${HOST}:${port}`);
   console.log(`🌐 Visit your app at http://localhost:${port}`);
+  console.log(`Node: ${process.version} | CWD: ${PROJECT_ROOT}`);
+
+  // Quick startup diagnostics to help platform deployments
+  const checkFiles = ['sltp.js', 'controler.js', 'route.js', 'public/index.html'];
+  checkFiles.forEach(f => {
+    const full = require('path').join(PROJECT_ROOT, f);
+    console.log(`${f} -> ${fs.existsSync(full) ? 'FOUND' : 'MISSING'} (${full})`);
+  });
 });

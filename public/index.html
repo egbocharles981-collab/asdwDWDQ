@@ -125,6 +125,10 @@
 
     <h3>Trade Log</h3>
     <div class="log" id="tradeLog"></div>
+    
+    <h3>All Logs</h3>
+    <div class="log" id="allLogs"></div>
+    <button id="refreshLogs" style="max-width:220px;margin-top:8px;">Refresh Logs</button>
   </div>
 </div>
 
@@ -347,6 +351,50 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+});
+
+/* === ALL LOGS PANEL === */
+async function fetchLogs(lines = 500) {
+  try {
+    const base = getApiBaseUrl();
+    const url = base ? `${base}/api/logs?lines=${lines}` : `/api/logs?lines=${lines}`;
+    const res = await axios.get(url);
+    const linesArr = res.data.lines || [];
+    const el = document.getElementById('allLogs');
+    el.innerHTML = '';
+    linesArr.forEach(l => {
+      const d = document.createElement('div');
+      d.textContent = l;
+      if (l.includes('❌')) d.style.color = '#ff6b6b';
+      else if (l.includes('⚠️')) d.style.color = '#f39c12';
+      else if (l.includes('✅')) d.style.color = '#2ecc71';
+      else if (l.includes('🚀')) d.style.color = '#9b59b6';
+      else if (l.includes('🔍')) d.style.color = '#58a6ff';
+      else d.style.color = '#c9d1d9';
+      el.appendChild(d);
+    });
+    el.scrollTop = el.scrollHeight;
+  } catch (e) {
+    console.warn('Failed to fetch logs', e);
+  }
+}
+
+let _logsInterval;
+function startLogsPolling() {
+  // initial fetch
+  fetchLogs(500);
+  // refresh every 3 seconds
+  _logsInterval = setInterval(() => fetchLogs(500), 3000);
+}
+
+function stopLogsPolling() {
+  if (_logsInterval) clearInterval(_logsInterval);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('refreshLogs');
+  if (btn) btn.addEventListener('click', () => fetchLogs(2000));
+  startLogsPolling();
 });
 </script>
 

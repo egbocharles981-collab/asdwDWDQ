@@ -1,0 +1,26 @@
+console.log('Starting debug server sequence');
+const path = require('path');
+console.log('Loaded path');
+const express = require('express');
+console.log('Loaded express');
+const cors = require('cors');
+console.log('Loaded cors');
+const app = express();
+console.log('Created app');
+app.use(cors());
+console.log('Applied cors');
+app.use(express.json());
+console.log('Applied json parser');
+// static
+app.use(express.static(path.join(__dirname, 'public')));
+console.log('Applied static');
+console.log('Now requiring ./route');
+const tradeRoutes = require('./route');
+console.log('Required route, type=', typeof tradeRoutes);
+app.use('/api', tradeRoutes);
+console.log('Mounted tradeRoutes on /api');
+console.log('Adding root routes');
+app.get('/', (req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
+app.get('*',(req,res,next)=>{ if (req.path.startsWith('/api')) return next(); res.sendFile(path.join(__dirname,'public','index.html')) });
+console.log('Routes added, starting server');
+app.listen(5001, ()=>console.log('Server listening'));

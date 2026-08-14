@@ -3,6 +3,7 @@ const router = express.Router();
 const os = require('os');
 const axios = require('axios');
 const crypto = require('crypto');
+const fs = require('fs');
 
 // ✅ Import separate controllers
 const controler = require('./controler');
@@ -159,6 +160,38 @@ router.get('/balance', async (req, res) => {
     const status = err.response?.status || 500;
     const details = err.response?.data || err.message || String(err);
     return res.status(status).json({ error: 'Failed to fetch balance', details });
+  }
+});
+
+// ✅ Return recent application logs and optional daily profit snapshot
+router.get('/logs', async (req, res) => {
+  try {
+    const linesParam = parseInt(req.query.lines || '500', 10) || 500;
+    const maxLines = Math.min(Math.max(linesParam, 10), 2000);
+
+    const logPath = path.join(PROJECT_ROOT, 'trading-log.txt');
+    let logText = '';
+    if (fs.existsSync(logPath)) {
+      logText = fs.readFileSync(logPath, 'utf8');
+    }
+    const allLines = logText.trim() ? logText.trim().split('\n') : [];
+    const lines = allLines.slice(-maxLines);
+
+    // try to include dailyProfit.json if present
+    const profitPath = path.join(PROJECT_ROOT, 'dailyProfit.json');
+    let dailyProfit = null;
+    if (fs.existsSync(profitPath)) {
+      try {
+        dailyProfit = JSON.parse(fs.readFileSync(profitPath, 'utf8'));
+      } catch (e) {
+        dailyProfit = null;
+      }
+    }
+
+    res.json({ success: true, lines, dailyProfit });
+  } catch (err) {
+    console.error('❌ /logs error:', err && err.stack ? err.stack : err.message || err);
+    res.status(500).json({ success: false, error: 'Failed to read logs' });
   }
 });
 
