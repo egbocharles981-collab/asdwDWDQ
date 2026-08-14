@@ -170,6 +170,16 @@ document.addEventListener('DOMContentLoaded', () => {
   try { initChart(); } catch (e) { console.warn('Chart init failed', e); }
 });
 
+// Restore persisted UI selections
+document.addEventListener('DOMContentLoaded', () => {
+  const pair = localStorage.getItem('pair') || null;
+  const qty = localStorage.getItem('qty') || null;
+  const timeframe = localStorage.getItem('timeframe') || null;
+  if (pair) document.getElementById('pairSelect').value = pair;
+  if (qty) document.getElementById('qtyInput').value = qty;
+  if (timeframe) document.getElementById('timeframeSelect').value = timeframe;
+});
+
 /* === CHART INIT === */
 function initChart() {
   const ctx = document.getElementById('tradeChart').getContext('2d');
@@ -293,6 +303,8 @@ async function toggleTrading() {
 
   try {
     if (autoTrading) {
+      // persist state
+      localStorage.setItem('autoTrading', 'true');
       const base = getApiBaseUrl();
       if (!base) throw new Error('API base URL not available');
       await axios.post(`${base}/api/futures/start`, { symbol, interval });
@@ -305,6 +317,7 @@ async function toggleTrading() {
       // 🕐 Refresh chart automatically every minute
       candleInterval = setInterval(fetchCandle, 60 * 1000);
     } else {
+      localStorage.setItem('autoTrading', 'false');
       const base = getApiBaseUrl();
       if (!base) throw new Error('API base URL not available');
       await axios.post(`${base}/api/futures/stop`);
@@ -350,6 +363,36 @@ document.addEventListener('DOMContentLoaded', () => {
         balOut.textContent = 'Error: ' + (err.response?.data?.error || err.message);
       }
     });
+  }
+});
+
+// Persist selected pair, qty and timeframe
+document.getElementById('pairSelect').addEventListener('change', (e) => localStorage.setItem('pair', e.target.value));
+document.getElementById('qtyInput').addEventListener('change', (e) => localStorage.setItem('qty', e.target.value));
+document.getElementById('timeframeSelect').addEventListener('change', (e) => localStorage.setItem('timeframe', e.target.value));
+
+// On load, check server-side watcher status so UI can reflect running state across refreshes
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const base = getApiBaseUrl();
+    const url = base ? `${base}/api/futures/status` : '/api/futures/status';
+    const res = await axios.get(url);
+    const running = !!res.data.running;
+    const statusEl = document.getElementById('status');
+    const button = document.querySelector('.control-panel button');
+    if (running) {
+      autoTrading = true;
+      statusEl.innerText = 'Running';
+      button.innerText = 'Stop Auto Trading';
+      fetchCandle();
+      candleInterval = setInterval(fetchCandle, 60 * 1000);
+    } else {
+      autoTrading = false;
+      statusEl.innerText = 'Stopped';
+      button.innerText = 'Start Auto Trading';
+    }
+  } catch (e) {
+    console.warn('Could not determine watcher status on load', e);
   }
 });
 

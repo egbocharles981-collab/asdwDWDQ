@@ -95,6 +95,22 @@ router.post('/futures/stop', async (req, res) => {
   }
 });
 
+// ✅ 5️⃣ Check futures watcher status
+router.get('/futures/status', async (req, res) => {
+  try {
+    let running = false;
+    if (futuresController && typeof futuresController.isWatcherRunning === 'function') {
+      running = !!futuresController.isWatcherRunning();
+    } else if (futuresController && futuresController.default && typeof futuresController.default.isWatcherRunning === 'function') {
+      running = !!futuresController.default.isWatcherRunning();
+    }
+    res.json({ running });
+  } catch (err) {
+    console.error('❌ /futures/status error:', err && err.stack ? err.stack : err.message || err);
+    res.status(500).json({ running: false, error: 'Failed to determine watcher status' });
+  }
+});
+
 // ✅ Return only the public IP (via api.ipify.org)
 router.get('/ip', async (req, res) => {
   try {

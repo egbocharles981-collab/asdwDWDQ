@@ -710,4 +710,8 @@ function stopTradingWatcher() {
   }
 }
 
-module.exports = { startTradingWatcher, stopTradingWatcher, setLeverageIfPossible, buildExitOrderParams, buildSlTpOrders };
+function isWatcherRunning() {
+  return !!watcherInterval;
+}
+
+module.exports = { startTradingWatcher, stopTradingWatcher, isWatcherRunning, setLeverageIfPossible, buildExitOrderParams, buildSlTpOrders };
