@@ -316,6 +316,8 @@ async function toggleTrading() {
 
       // 🕐 Refresh chart automatically every minute
       candleInterval = setInterval(fetchCandle, 60 * 1000);
+      // disable controls while auto trading
+      setControlsDisabled(true);
     } else {
       localStorage.setItem('autoTrading', 'false');
       const base = getApiBaseUrl();
@@ -327,12 +329,22 @@ async function toggleTrading() {
 
       // ❌ stop refreshing candles
       clearInterval(candleInterval);
+      // re-enable controls when stopped
+      setControlsDisabled(false);
     }
   } catch (err) {
     const msg = err.response?.data?.message || err.message;
     logTrade(`⚠️ Error toggling auto trading: ${msg}`);
     statusEl.innerText = 'Error';
   }
+}
+
+function setControlsDisabled(disabled) {
+  const elems = ['pairSelect', 'qtyInput', 'timeframeSelect', 'serverInput'];
+  elems.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !!disabled;
+  });
 }
 
 
@@ -376,20 +388,45 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     const base = getApiBaseUrl();
     const url = base ? `${base}/api/futures/status` : '/api/futures/status';
-    const res = await axios.get(url);
-    const running = !!res.data.running;
+    const res = await axios.get(url).catch(() => ({ data: { running: false } }));
+    const serverRunning = !!res.data.running;
+
+    // local preference (what the user clicked) should persist across refreshes
+    const localPref = localStorage.getItem('autoTrading') === 'true';
+
     const statusEl = document.getElementById('status');
     const button = document.querySelector('.control-panel button');
-    if (running) {
+
+    let shouldRun = serverRunning || localPref;
+
+    // If user expects autoTrading to be running (localPref) but server isn't, attempt to start it.
+    if (localPref && !serverRunning) {
+      try {
+        const symbol = document.getElementById('pairSelect').value;
+        const intervalMs = parseInt(document.getElementById('timeframeSelect').value);
+        const intervalMap = { 60000: '1m', 300000: '5m', 900000: '15m', 3600000: '1h' };
+        const interval = intervalMap[intervalMs] || '5m';
+        const startUrl = base ? `${base}/api/futures/start` : '/api/futures/start';
+        await axios.post(startUrl, { symbol, interval });
+        shouldRun = true;
+      } catch (e) {
+        console.warn('Failed to auto-start watcher from local preference', e);
+        shouldRun = serverRunning; // fallback
+      }
+    }
+
+    if (shouldRun) {
       autoTrading = true;
       statusEl.innerText = 'Running';
       button.innerText = 'Stop Auto Trading';
+      setControlsDisabled(true);
       fetchCandle();
       candleInterval = setInterval(fetchCandle, 60 * 1000);
     } else {
       autoTrading = false;
       statusEl.innerText = 'Stopped';
       button.innerText = 'Start Auto Trading';
+      setControlsDisabled(false);
     }
   } catch (e) {
     console.warn('Could not determine watcher status on load', e);
