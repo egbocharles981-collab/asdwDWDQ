@@ -19,8 +19,31 @@ const SYMBOL = "BTCUSDT";
 const INTERVAL = "1h";
 const QUANTITY = 0.001; // Bybit contract qty may differ from Binance; adjust if needed
 const LEVERAGE = 50;
-const TP_PERCENT = 0.015;
-const SL_PERCENT = 0.007;
+const TP_PERCENT = 0.017;
+const SL_PERCENT = 0.009;
+const TRAILING_TRIGGER_RATIO = 0.4;
+const TRAILING_STOP_PIPS_ACTIVE = 200;
+const TRAILING_STOP_PIPS_REMAINING = 100;
+const TRAILING_PIP_SIZE = 1;
+const INITIAL_TP_POINTS = 1000;
+const INITIAL_SL_POINTS = 500;
+
+function getDistanceBasedLevels(side, entryPrice) {
+  const tpDistance = INITIAL_TP_POINTS;
+  const slDistance = INITIAL_SL_POINTS;
+
+  if (side === "BUY") {
+    return {
+      tp: Number((entryPrice + tpDistance).toFixed(PRICE_PRECISION)),
+      sl: Number((entryPrice - slDistance).toFixed(PRICE_PRECISION)),
+    };
+  }
+
+  return {
+    tp: Number((entryPrice - tpDistance).toFixed(PRICE_PRECISION)),
+    sl: Number((entryPrice + slDistance).toFixed(PRICE_PRECISION)),
+  };
+}
 
 const INTERVAL_MS = {
   "1m": 60 * 1000,
@@ -54,7 +77,7 @@ function formatPrice(p) {
 }
 
 function buildExitOrderParams(side, triggerPrice, qty, kind) {
-  return buildSLTPExitOrderParams({
+  const params = buildSLTPExitOrderParams({
     side,
     symbol: SYMBOL,
     triggerPrice,
@@ -62,10 +85,14 @@ function buildExitOrderParams(side, triggerPrice, qty, kind) {
     kind,
     category: "linear",
   });
+
+  params.orderFilter = "Order";
+  params.positionIdx = 0;
+  return params;
 }
 
 function buildSlTpOrders({ side, entryPrice, qty, tpPercent = TP_PERCENT, slPercent = SL_PERCENT }) {
-  return buildSLTPOrderSet({
+  const orderSet = buildSLTPOrderSet({
     side,
     entryPrice,
     qty,
@@ -73,6 +100,18 @@ function buildSlTpOrders({ side, entryPrice, qty, tpPercent = TP_PERCENT, slPerc
     slPercent,
     symbol: SYMBOL,
   });
+
+  if (orderSet?.tpOrder) {
+    orderSet.tpOrder.orderFilter = "Order";
+    orderSet.tpOrder.positionIdx = 0;
+  }
+
+  if (orderSet?.slOrder) {
+    orderSet.slOrder.orderFilter = "Order";
+    orderSet.slOrder.positionIdx = 0;
+  }
+
+  return orderSet;
 }
 
 function getServerTime() {
@@ -515,13 +554,9 @@ async function placeTP_SL(side, entryPrice, orderQty) {
 
   try {
     const opposite = side === "BUY" ? "SELL" : "BUY";
-    if (side === "BUY") {
-      tp = formatPrice(entryPrice * (1 + TP_PERCENT));
-      sl = formatPrice(entryPrice * (1 - SL_PERCENT));
-    } else {
-      tp = formatPrice(entryPrice * (1 - TP_PERCENT));
-      sl = formatPrice(entryPrice * (1 + SL_PERCENT));
-    }
+    const levels = getDistanceBasedLevels(side, entryPrice);
+    tp = levels.tp;
+    sl = levels.sl;
 
     const { tpQty, slQty, remainingQty, tpOrder, slOrder } = buildSlTpOrders({
       side,
@@ -549,20 +584,59 @@ async function placeTP_SL(side, entryPrice, orderQty) {
   }
 }
 
+function getTrailingStopPrice(side, currentPrice, pips) {
+  const pipValue = Number((Math.abs(pips) * TRAILING_PIP_SIZE).toFixed(PRICE_PRECISION));
+  if (side === "BUY") {
+    return Number((currentPrice - pipValue).toFixed(PRICE_PRECISION));
+  }
+  return Number((currentPrice + pipValue).toFixed(PRICE_PRECISION));
+}
+
 async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
   try {
-    console.log(chalk.gray("📈 Monitoring for trailing stop trigger / partial TP..."));
+    console.log(chalk.gray("📈 Monitoring trailing stop..."));
 
     const triggerPrice = side === "BUY"
-      ? entryPrice + (tp - entryPrice) * 0.4
-      : entryPrice - (entryPrice - tp) * 0.4;
+      ? entryPrice + (tp - entryPrice) * TRAILING_TRIGGER_RATIO
+      : entryPrice - (entryPrice - tp) * TRAILING_TRIGGER_RATIO;
 
     console.log(chalk.yellow(`⏱️ Trailing activation threshold: ${triggerPrice.toFixed(8)}`));
 
-    let triggered = false;
+    let lastStopPrice = null;
+    let partialTpClosed = false;
+    let stopGapPips = TRAILING_STOP_PIPS_ACTIVE;
 
-    while (!triggered && currentPosition === side) {
-      // resilient ticker fetch
+    while (currentPosition === side) {
+      let positionInfo;
+      for (let a = 1; a <= 3; a += 1) {
+        try {
+          positionInfo = await bybitRequest("GET", "/v5/position/list", {
+            category: "linear",
+            symbol: SYMBOL,
+            settleCoin: "USDT",
+          });
+          break;
+        } catch (err) {
+          const isNetworkErr = err.code === 'ENOTFOUND' || err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'EAI_AGAIN';
+          if (isNetworkErr && a < 3) {
+            await sleep(500 * Math.pow(2, a - 1));
+            continue;
+          }
+          throw err;
+        }
+      }
+
+      const position = Array.isArray(positionInfo)
+        ? positionInfo[0]
+        : positionInfo?.list?.[0] || positionInfo;
+      const posRemaining = Math.abs(parseFloat(position?.size || position?.pos_qty || 0));
+
+      if (posRemaining <= 0) {
+        console.log(chalk.gray("ℹ️ Position fully closed; stopping trailing monitor."));
+        currentPosition = null;
+        break;
+      }
+
       let tickerData;
       for (let a = 1; a <= 3; a += 1) {
         try {
@@ -578,69 +652,37 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
           throw err;
         }
       }
+
       const ticker = extractTickerFromResponse(tickerData);
       const price = parseTickerPrice(ticker);
+      if (!price) {
+        await sleep(5000);
+        continue;
+      }
 
-      if ((side === "BUY" && price >= triggerPrice) || (side === "SELL" && price <= triggerPrice)) {
-        triggered = true;
-        console.log(chalk.green(`🔥 Activation reached at price ${price}. Waiting for partial TP execution...`));
-        await sleep(2000);
+      const reachedTrigger = (side === "BUY" && price >= triggerPrice) || (side === "SELL" && price <= triggerPrice);
+      if (!reachedTrigger) {
+        await sleep(5000);
+        continue;
+      }
 
-        let posRemaining = 0;
-        for (let i = 0; i < 12; i += 1) {
-const positionInfo = await bybitRequest("GET", "/v5/position/list", {
-          category: "linear",
-          symbol: SYMBOL,
-          settleCoin: "USDT",
-        });
-        const position = Array.isArray(positionInfo)
-          ? positionInfo[0]
-          : positionInfo?.list?.[0] || positionInfo;
-          posRemaining = Math.abs(parseFloat(position?.size || position?.pos_qty || 0));
+      if ((side === "BUY" && price >= tp) || (side === "SELL" && price <= tp)) {
+        partialTpClosed = true;
+        stopGapPips = TRAILING_STOP_PIPS_REMAINING;
+      }
 
-          if (remainingQty > 0 && Math.abs(posRemaining - remainingQty) <= Math.max(remainingQty * 0.05, 0.000001)) {
-            console.log(chalk.green(`✅ Detected partial TP execution. remaining ≈ ${posRemaining}`));
-            break;
-          }
-          if (posRemaining === 0) {
-            console.log(chalk.yellow("ℹ️ Position fully closed after TP."));
-            break;
-          }
-          await sleep(5000);
-        }
+      const nextStopPrice = getTrailingStopPrice(side, price, stopGapPips);
+      if (lastStopPrice === null || Math.abs(nextStopPrice - lastStopPrice) >= 0.01) {
+        await cancelAllOrders();
 
-        if (posRemaining > 0) {
-          await cancelAllOrders();
+        const stopOrder = buildExitOrderParams(side, nextStopPrice, posRemaining, "SL");
+        stopOrder.orderFilter = "Order";
+        stopOrder.positionIdx = 0;
 
-          // resilient current ticker fetch
-          let currentTickerData;
-          for (let a = 1; a <= 3; a += 1) {
-            try {
-              const resp = await axios.get(`${BYBIT_BASE_URL}/v5/market/tickers`, { params: { symbol: SYMBOL, category: 'linear' }, timeout: 8000 });
-              currentTickerData = resp.data;
-              break;
-            } catch (err) {
-              const isNetworkErr = err.code === 'ENOTFOUND' || err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT' || err.code === 'EAI_AGAIN';
-              if (isNetworkErr && a < 3) {
-                await sleep(500 * Math.pow(2, a - 1));
-                continue;
-              }
-              throw err;
-            }
-          }
-          const ticker = extractTickerFromResponse(currentTickerData);
-          const curPrice = parseTickerPrice(ticker);
+        await bybitRequest("POST", "/v5/order/create", stopOrder);
+        lastStopPrice = nextStopPrice;
 
-          const hardStopPrice = side === "BUY"
-            ? entryPrice * (1 - SL_PERCENT)
-            : entryPrice * (1 + SL_PERCENT);
-
-          await bybitRequest("POST", "/v5/order/create", buildExitOrderParams(side, hardStopPrice, posRemaining, "SL"));
-
-          console.log(chalk.cyan(`🛑 Hard SL for remaining ${formatQty(posRemaining)} set at ${hardStopPrice.toFixed(8)}`));
-        } else {
-          console.log(chalk.gray("ℹ️ No remaining position to attach trailing stop to."));
-        }
+        console.log(chalk.cyan(`🛑 Trailing SL ${stopGapPips} pips behind price for ${formatQty(posRemaining)} @ ${nextStopPrice.toFixed(8)}`));
       }
 
       await sleep(5000);
@@ -710,8 +752,13 @@ function stopTradingWatcher() {
   }
 }
 
-function isWatcherRunning() {
-  return !!watcherInterval;
-}
-
-module.exports = { startTradingWatcher, stopTradingWatcher, isWatcherRunning, setLeverageIfPossible, buildExitOrderParams, buildSlTpOrders };
+module.exports = {
+  startTradingWatcher,
+  stopTradingWatcher,
+  setLeverageIfPossible,
+  buildExitOrderParams,
+  buildSlTpOrders,
+  bybitRequest,
+  placeTP_SL,
+  getTrailingStopPrice,
+};
