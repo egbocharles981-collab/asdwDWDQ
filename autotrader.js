@@ -17,7 +17,7 @@ const API_SECRET = process.env.API_SECRET;
 const BYBIT_BASE_URL = process.env.BYBIT_BASE_URL || 'https://api.bybit.com';
 const SYMBOL = "BTCUSDT";
 const INTERVAL = "1h";
-const QUANTITY = 0.001; // Bybit contract qty may differ from Binance; adjust if needed
+const QUANTITY = 0.003; // Bybit contract qty may differ from Binance; adjust if needed
 const LEVERAGE = 50;
 const TP_PERCENT = 0.017;
 const SL_PERCENT = 0.009;
@@ -66,6 +66,7 @@ let currentPosition = null;
 let lastPositionClosedAt = 0;
 let lastTradeTime = 0;
 let lastConfig = null;
+let isOpeningPosition = false; // Prevent concurrent position opens
 
 function formatQty(q) {
   const factor = 10 ** QTY_PRECISION;
@@ -531,14 +532,23 @@ async function openPosition(side) {
     }
 
     if (!entryPrice || actualQty <= 0) {
-      console.log("⚠️ No entry price or filled position found after retries, skipping TP/SL placement.");
+      console.error(chalk.red("❌ No entry price or filled position found after retries, skipping TP/SL placement."));
+      currentPosition = null;
       return;
     }
 
     console.log(chalk.green(`✅ ${side} MARKET order success @ ${entryPrice} with qty ${actualQty}`));
     await sleep(8000);
 
+    console.log(chalk.yellow(`🔄 Placing TP/SL orders for ${side} position...`));
     const { tp, sl, qty80, remainingQty } = await placeTP_SL(side, entryPrice, actualQty);
+    
+    if (tp === 0 || sl === 0) {
+      console.error(chalk.red(`❌ TP/SL placement FAILED! TP=${tp}, SL=${sl}`));
+      currentPosition = null;
+      return;
+    }
+
     console.log(`✅ ${side} opened @ ${entryPrice} | 🎯 TP: ${tp.toFixed(2)} | 🛑 SL: ${sl.toFixed(2)} | TP80:${qty80} rem:${remainingQty}`);
 
     currentPosition = side;
@@ -705,7 +715,7 @@ async function tradingWatcher() {
       return;
     }
 
-    if (signal && signal !== currentPosition) {
+    if (signal && signal !== currentPosition && !isOpeningPosition) {
       console.log(chalk.magenta(`[Signal] ${signal} detected. Waiting ${CONFIRMATION_WAIT / 1000}s for confirmation...`));
       await sleep(CONFIRMATION_WAIT);
       const newCandles = await getCandles();
@@ -713,11 +723,18 @@ async function tradingWatcher() {
 
       if (confirmSignal === signal) {
         console.log(chalk.green(`[Confirmed] ${signal} still valid after ${CONFIRMATION_WAIT / 1000}s.`));
-        await openPosition(signal);
-        lastTradeTime = Date.now();
+        isOpeningPosition = true;
+        try {
+          await openPosition(signal);
+          lastTradeTime = Date.now();
+        } finally {
+          isOpeningPosition = false;
+        }
       } else {
         console.log(chalk.gray(`[Ignored] ${signal} invalidated after ${CONFIRMATION_WAIT / 1000}s.`));
       }
+    } else if (isOpeningPosition) {
+      console.log(chalk.gray("Position opening in progress... skipping new signals"));
     } else {
       console.log("ℹ️ No new SMA crossover signal.");
     }
