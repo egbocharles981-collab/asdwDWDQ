@@ -58,6 +58,18 @@ const CONFIRMATION_WAIT = 2 * 60 * 1000;
 const PRICE_PRECISION = 2;
 const QTY_PRECISION = 3;
 const RECV_WINDOW = 5000;
+const LOG_FILE = 'trading-log.txt';
+
+// === LOGGING ===
+function appendTradeLog(message) {
+  const entry = `[${new Date().toISOString()}] ${message}\n`;
+  try {
+    fs.appendFileSync(LOG_FILE, entry);
+  } catch (err) {
+    console.warn(chalk.yellow(`⚠️ Unable to append to ${LOG_FILE}: ${err.message}`));
+  }
+  console.log(entry.trim());
+}
 
 let timeOffset = 0;
 let watcherInterval = null;
@@ -493,14 +505,17 @@ async function openPosition(side) {
     const orderQty = Math.min(QUANTITY, maxQty);
 
     if (orderQty <= 0) {
+      appendTradeLog(`❌ Entry Failed: Insufficient balance (${availableBalance} USDT) at price ${price}`);
       console.log(chalk.red(`❌ Insufficient available balance (${availableBalance} USDT) for any size at price ${price}.`));
       return;
     }
 
     if (orderQty < QUANTITY) {
+      appendTradeLog(`⚠️ Qty reduced: ${QUANTITY} → ${orderQty} (balance: ${availableBalance} USDT)`);
       console.log(chalk.yellow(`⚠️ Reducing order qty from ${QUANTITY} to ${orderQty} due to available balance ${availableBalance} USDT`));
     }
 
+    appendTradeLog(`📍 Entry Price: ${price} | Qty: ${orderQty} | Side: ${side}`);
     console.log(`🚀 Opening ${side} (${orderQty}) with available balance ${availableBalance} USDT`);
     await bybitRequest("POST", "/v5/order/create", {
       category: "linear",
@@ -532,28 +547,34 @@ async function openPosition(side) {
     }
 
     if (!entryPrice || actualQty <= 0) {
+      appendTradeLog(`❌ Entry Failed: No entry price confirmed after retries`);
       console.error(chalk.red("❌ No entry price or filled position found after retries, skipping TP/SL placement."));
       currentPosition = null;
       return;
     }
 
+    appendTradeLog(`✅ Entry Filled: ${side} | Price: ${entryPrice} | Qty: ${actualQty}`);
     console.log(chalk.green(`✅ ${side} MARKET order success @ ${entryPrice} with qty ${actualQty}`));
     await sleep(8000);
 
+    appendTradeLog(`🔄 Placing TP/SL orders...`);
     console.log(chalk.yellow(`🔄 Placing TP/SL orders for ${side} position...`));
     const { tp, sl, qty80, remainingQty } = await placeTP_SL(side, entryPrice, actualQty);
     
     if (tp === 0 || sl === 0) {
+      appendTradeLog(`❌ TP/SL Failed: TP=${tp}, SL=${sl} - Position at risk!`);
       console.error(chalk.red(`❌ TP/SL placement FAILED! TP=${tp}, SL=${sl}`));
       currentPosition = null;
       return;
     }
 
+    appendTradeLog(`✅ TP/SL Set: TP=${tp} | SL=${sl} | Trail-Qty=${qty80} | Rem=${remainingQty}`);
     console.log(`✅ ${side} opened @ ${entryPrice} | 🎯 TP: ${tp.toFixed(2)} | 🛑 SL: ${sl.toFixed(2)} | TP80:${qty80} rem:${remainingQty}`);
 
     currentPosition = side;
     monitorTrailingStop(side, entryPrice, tp, sl, remainingQty);
   } catch (e) {
+    appendTradeLog(`❌ Exception during entry: ${e.message}`);
     console.error("❌ Failed to open position:", e.message);
   }
 }
@@ -587,9 +608,10 @@ async function placeTP_SL(side, entryPrice, orderQty) {
 
     return { tp, sl, qty80: tpQty, remainingQty, tpOrderId: tpResp?.orderId || null };
   } catch (e) {
-    console.error(chalk.red(`⚠️ Failed to place TP/SL orders: ${e.message}`));
+    const errorMsg = e.response?.data?.retMsg || e.message || 'Unknown error';
+    appendTradeLog(`❌ TP/SL Error: ${errorMsg}`);
+    console.error(chalk.red(`⚠️ Failed to place TP/SL orders: ${errorMsg}`));
     console.error("Full error:", e);
-    fs.appendFileSync("signals.log", `[${new Date().toISOString()}] ❌ TP/SL error: ${e.message}\n`);
     return { tp: 0, sl: 0, qty80: 0, remainingQty: 0 };
   }
 }
@@ -642,6 +664,7 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
       const posRemaining = Math.abs(parseFloat(position?.size || position?.pos_qty || 0));
 
       if (posRemaining <= 0) {
+        appendTradeLog(`✅ Position Closed | Profit/Loss Realized`);
         console.log(chalk.gray("ℹ️ Position fully closed; stopping trailing monitor."));
         currentPosition = null;
         break;
@@ -692,6 +715,7 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
         await bybitRequest("POST", "/v5/order/create", stopOrder);
         lastStopPrice = nextStopPrice;
 
+        appendTradeLog(`📍 Trail SL: Price=${price} | SL=${nextStopPrice} | Gap=${stopGapPips}pips | Qty=${formatQty(posRemaining)}`);
         console.log(chalk.cyan(`🛑 Trailing SL ${stopGapPips} pips behind price for ${formatQty(posRemaining)} @ ${nextStopPrice.toFixed(8)}`));
       }
 
@@ -716,12 +740,14 @@ async function tradingWatcher() {
     }
 
     if (signal && signal !== currentPosition && !isOpeningPosition) {
+      appendTradeLog(`🚀 [Signal] ${signal} detected. Waiting ${CONFIRMATION_WAIT / 1000}s for confirmation...`);
       console.log(chalk.magenta(`[Signal] ${signal} detected. Waiting ${CONFIRMATION_WAIT / 1000}s for confirmation...`));
       await sleep(CONFIRMATION_WAIT);
       const newCandles = await getCandles();
       const confirmSignal = getSignal(newCandles);
 
       if (confirmSignal === signal) {
+        appendTradeLog(`✅ [Confirmed] ${signal} still valid after ${CONFIRMATION_WAIT / 1000}s. Opening position...`);
         console.log(chalk.green(`[Confirmed] ${signal} still valid after ${CONFIRMATION_WAIT / 1000}s.`));
         isOpeningPosition = true;
         try {
@@ -731,6 +757,7 @@ async function tradingWatcher() {
           isOpeningPosition = false;
         }
       } else {
+        appendTradeLog(`⚠️ [Ignored] ${signal} invalidated after ${CONFIRMATION_WAIT / 1000}s. No trade placed.`);
         console.log(chalk.gray(`[Ignored] ${signal} invalidated after ${CONFIRMATION_WAIT / 1000}s.`));
       }
     } else if (isOpeningPosition) {
