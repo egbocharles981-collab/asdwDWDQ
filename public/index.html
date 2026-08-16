@@ -125,9 +125,6 @@
 
     <h3>Trade Log</h3>
     <div class="log" id="tradeLog"></div>
-
-    <h3>Trade Entry & Trail Log</h3>
-    <div class="log" id="tradeLogDetailed"></div>
     
     <h3>All Logs</h3>
     <div class="log" id="allLogs"></div>
@@ -360,40 +357,6 @@ function logTrade(msg) {
   log.scrollTop = log.scrollHeight;
 }
 
-async function refreshTradeLogs() {
-  const logEl = document.getElementById('tradeLogDetailed');
-  if (!logEl) return;
-
-  const base = getApiBaseUrl();
-  if (!base) return;
-
-  try {
-    const response = await axios.get(`${base}/api/trade-logs`, { timeout: 8000 });
-    const logs = response.data?.logs || [];
-    logEl.innerHTML = '';
-
-    logs.forEach((line) => {
-      const row = document.createElement('div');
-      row.textContent = line;
-      row.style.marginBottom = '6px';
-      row.style.whiteSpace = 'pre-wrap';
-      row.style.wordBreak = 'break-word';
-
-      if (line.includes('❌')) row.style.color = '#f85149';
-      else if (line.includes('⚠️')) row.style.color = '#f2cc60';
-      else if (line.includes('✅')) row.style.color = '#3fb950';
-      else if (line.includes('🚀') || line.includes('[Signal]') || line.includes('[Confirmed]')) row.style.color = '#d2a8ff';
-      else row.style.color = '#c9d1d9';
-
-      logEl.appendChild(row);
-    });
-
-    logEl.scrollTop = logEl.scrollHeight;
-  } catch (err) {
-    console.warn('trade log refresh failed', err.message);
-  }
-}
-
 // Balance button handler
 document.addEventListener('DOMContentLoaded', () => {
   const balBtn = document.getElementById('balBtn');
@@ -512,8 +475,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('refreshLogs');
   if (btn) btn.addEventListener('click', () => fetchLogs(2000));
   startLogsPolling();
-  setInterval(refreshTradeLogs, 5000);
-  setTimeout(refreshTradeLogs, 500);
 });
 </script>
 
