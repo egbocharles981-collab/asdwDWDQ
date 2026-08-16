@@ -171,10 +171,6 @@ let chart, autoTrading = false, isLoggedIn = false;
 // auth removed — initialize chart on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', () => {
   try { initChart(); } catch (e) { console.warn('Chart init failed', e); }
-  // Fetch initial candles after chart is ready
-  setTimeout(() => {
-    fetchCandle().catch(err => console.warn('Initial candle fetch failed:', err));
-  }, 500);
 });
 
 // Restore persisted UI selections
@@ -255,9 +251,7 @@ const interval = intervalMap[intervalMs] || '5m';
       logTrade('⚠️ API base URL not set or page served via file:// — enter backend URL above.');
       return;
     }
-    const url = `${base}/api/candle?symbol=${symbol}&interval=${interval}`;
-    logTrade(`🔍 Fetching candles from: ${url}`);
-    const res = await axios.get(url);
+    const res = await axios.get(`${base}/api/candle?symbol=${symbol}&interval=${interval}`);
     const candles = res.data.candles || res.data.result?.list || [];
 
     if (!candles || candles.length === 0) {
@@ -281,12 +275,9 @@ const interval = intervalMap[intervalMs] || '5m';
       .filter(c => c.sma10)
       .map(c => ({ x: c.time, y: c.sma10 }));
 
-    logTrade(`✅ Candles loaded: ${candles.length} candles with SMA data`);
     updateChart(candleData, sma5Data, sma10Data);
   } catch (err) {
-    const errMsg = err.response?.data?.error || err.message || 'Unknown error';
-    logTrade(`❌ Candle fetch failed: ${errMsg}`);
-    console.error('❌ Candle fetch failed:', err);
+    console.error('❌ Candle fetch failed:', err.response?.data || err.message);
   }
 }
 
@@ -412,23 +403,13 @@ document.addEventListener('DOMContentLoaded', () => {
       balOut.textContent = 'Loading...';
       try {
         const base = getApiBaseUrl();
-        if (!base) {
-          balOut.textContent = 'Error: API base URL not set';
-          logTrade('⚠️ Cannot fetch balance: API base URL not configured');
-          return;
-        }
-        const url = `${base}/api/balance`;
-        logTrade(`🔍 Fetching balance from: ${url}`);
-        const res = await axios.get(url, { timeout: 8000 });
+        const url = base ? `${base}/api/balance` : '/api/balance';
+        const res = await axios.get(url);
         const t = res.data.total ?? 'N/A';
         const a = res.data.available ?? 'N/A';
         balOut.textContent = `Total: ${t} USDT — Available: ${a} USDT`;
-        logTrade(`✅ Balance: Total=${t} USDT, Available=${a} USDT`);
       } catch (err) {
-        const errMsg = err.response?.data?.error || err.message || 'Unknown error';
-        balOut.textContent = 'Error: ' + errMsg;
-        logTrade(`❌ Balance fetch error: ${errMsg}`);
-        console.error('Balance fetch error:', err);
+        balOut.textContent = 'Error: ' + (err.response?.data?.error || err.message);
       }
     });
   }
@@ -443,15 +424,9 @@ document.getElementById('timeframeSelect').addEventListener('change', (e) => loc
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     const base = getApiBaseUrl();
-    if (!base) {
-      console.warn('⚠️ API base URL not set on load');
-      return;
-    }
-    const url = `${base}/api/futures/status`;
-    logTrade(`🔍 Checking watcher status at: ${url}`);
-    const res = await axios.get(url, { timeout: 5000 }).catch(() => ({ data: { running: false } }));
+    const url = base ? `${base}/api/futures/status` : '/api/futures/status';
+    const res = await axios.get(url).catch(() => ({ data: { running: false } }));
     const serverRunning = !!res.data.running;
-    logTrade(`📊 Watcher status: ${serverRunning ? '✅ Running' : '🔴 Stopped'}`);
 
     // local preference (what the user clicked) should persist across refreshes
     const localPref = localStorage.getItem('autoTrading') === 'true';
@@ -468,13 +443,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const intervalMs = parseInt(document.getElementById('timeframeSelect').value);
         const intervalMap = { 60000: '1m', 300000: '5m', 900000: '15m', 3600000: '1h' };
         const interval = intervalMap[intervalMs] || '5m';
-        const startUrl = `${base}/api/futures/start`;
-        logTrade(`🚀 Auto-starting watcher at: ${startUrl}`);
-        await axios.post(startUrl, { symbol, interval }, { timeout: 8000 });
-        logTrade('✅ Watcher auto-started from local preference');
+        const startUrl = base ? `${base}/api/futures/start` : '/api/futures/start';
+        await axios.post(startUrl, { symbol, interval });
         shouldRun = true;
       } catch (e) {
-        logTrade(`⚠️ Failed to auto-start watcher: ${e.message}`);
         console.warn('Failed to auto-start watcher from local preference', e);
         shouldRun = serverRunning; // fallback
       }
@@ -502,9 +474,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function fetchLogs(lines = 500) {
   try {
     const base = getApiBaseUrl();
-    if (!base) return;
-    const url = `${base}/api/logs?lines=${lines}`;
-    const res = await axios.get(url, { timeout: 8000 });
+    const url = base ? `${base}/api/logs?lines=${lines}` : `/api/logs?lines=${lines}`;
+    const res = await axios.get(url);
     const linesArr = res.data.lines || [];
     const el = document.getElementById('allLogs');
     el.innerHTML = '';
@@ -521,7 +492,7 @@ async function fetchLogs(lines = 500) {
     });
     el.scrollTop = el.scrollHeight;
   } catch (e) {
-    console.warn('Failed to fetch logs', e.message);
+    console.warn('Failed to fetch logs', e);
   }
 }
 

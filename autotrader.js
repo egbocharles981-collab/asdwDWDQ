@@ -841,14 +841,9 @@ function stopTradingWatcher() {
   }
 }
 
-function isTradingWatcherRunning() {
-  return !!watcherInterval;
-}
-
 module.exports = {
   startTradingWatcher,
   stopTradingWatcher,
-  isTradingWatcherRunning,
   setLeverageIfPossible,
   buildExitOrderParams,
   buildSlTpOrders,
