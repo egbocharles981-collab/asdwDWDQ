@@ -59,7 +59,26 @@
       border-radius: 8px;
       font-size: 14px;
     }
-    /* auth overlay removed */
+    #authOverlay {
+      position: fixed;
+      inset: 0;
+      background: #0d1117;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+    #authOverlay input, #authOverlay button {
+      margin-top: 10px;
+      font-size: 16px;
+    }
+    #authOverlay input {
+      background: #161b22;
+      border: 1px solid #30363d;
+      width: 220px;
+    }
+    #authError { color: #f85149; display: none; margin-top: 10px; }
     footer {
       background: #161b22;
       padding: 15px;
@@ -72,13 +91,12 @@
 </head>
 <body>
 
-<!-- Auth screen removed -->
-
-<!-- Quick links -->
-<div style="padding:12px;">
-  <a href="ip.html" style="text-decoration:none;">
-    <button style="max-width:220px;">Open IP Page</button>
-  </a>
+<!-- Auth Screen -->
+<div id="authOverlay">
+  <h2>Enter Password</h2>
+  <input type="password" id="passwordInput" placeholder="Password" />
+  <button onclick="checkPassword()">Login</button>
+  <p id="authError">Wrong password</p>
 </div>
 
 <!-- Server config (hybrid file:// support) -->
@@ -89,7 +107,7 @@
 </div>
 
 <!-- Dashboard -->
-<div class="dashboard" id="dashboard" style="display:grid;">
+<div class="dashboard" id="dashboard" style="display:none;">
   <!-- Chart -->
   <div class="card">
     <h2>SMA Crossover Chart</h2>
@@ -123,19 +141,9 @@
     <p>Status: <strong id="status">Stopped</strong></p>
     <button onclick="toggleTrading()">Start Auto Trading</button>
 
-    <h3>Trade Log</h3>
+    <h3>Trade Entry & Trail Log</h3>
     <div class="log" id="tradeLog"></div>
-    
-    <h3>All Logs</h3>
-    <div class="log" id="allLogs"></div>
-    <button id="refreshLogs" style="max-width:220px;margin-top:8px;">Refresh Logs</button>
   </div>
-</div>
-
-<!-- Balance display -->
-<div style="padding:12px;">
-  <button id="balBtn" style="max-width:220px;">Show Balance</button>
-  <div id="balOut" style="margin-top:8px;font-weight:700;color:#c9d1d9;">-</div>
 </div>
 
 <!-- Footer -->
@@ -145,6 +153,7 @@
 
 <script>
 /* === CONFIG === */
+const PASSWORD = 'now4charles';
 
 // API base helper: use saved server input when provided, otherwise same origin
 function getApiBaseUrl() {
@@ -165,20 +174,19 @@ if (serverInputEl) {
 }
 let chart, autoTrading = false, isLoggedIn = false;
 
-// auth removed — initialize chart on DOMContentLoaded
-document.addEventListener('DOMContentLoaded', () => {
-  try { initChart(); } catch (e) { console.warn('Chart init failed', e); }
-});
-
-// Restore persisted UI selections
-document.addEventListener('DOMContentLoaded', () => {
-  const pair = localStorage.getItem('pair') || null;
-  const qty = localStorage.getItem('qty') || null;
-  const timeframe = localStorage.getItem('timeframe') || null;
-  if (pair) document.getElementById('pairSelect').value = pair;
-  if (qty) document.getElementById('qtyInput').value = qty;
-  if (timeframe) document.getElementById('timeframeSelect').value = timeframe;
-});
+/* === AUTH === */
+function checkPassword() {
+  const pass = document.getElementById('passwordInput').value;
+  if (pass === PASSWORD) {
+    document.getElementById('authOverlay').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'grid';
+    isLoggedIn = true;
+    initChart();
+    fetchCandle(); // load first data immediately
+  } else {
+    document.getElementById('authError').style.display = 'block';
+  }
+}
 
 /* === CHART INIT === */
 function initChart() {
@@ -303,8 +311,6 @@ async function toggleTrading() {
 
   try {
     if (autoTrading) {
-      // persist state
-      localStorage.setItem('autoTrading', 'true');
       const base = getApiBaseUrl();
       if (!base) throw new Error('API base URL not available');
       await axios.post(`${base}/api/futures/start`, { symbol, interval });
@@ -316,10 +322,7 @@ async function toggleTrading() {
 
       // 🕐 Refresh chart automatically every minute
       candleInterval = setInterval(fetchCandle, 60 * 1000);
-      // disable controls while auto trading
-      setControlsDisabled(true);
     } else {
-      localStorage.setItem('autoTrading', 'false');
       const base = getApiBaseUrl();
       if (!base) throw new Error('API base URL not available');
       await axios.post(`${base}/api/futures/stop`);
@@ -329,8 +332,6 @@ async function toggleTrading() {
 
       // ❌ stop refreshing candles
       clearInterval(candleInterval);
-      // re-enable controls when stopped
-      setControlsDisabled(false);
     }
   } catch (err) {
     const msg = err.response?.data?.message || err.message;
@@ -339,143 +340,51 @@ async function toggleTrading() {
   }
 }
 
-function setControlsDisabled(disabled) {
-  const elems = ['pairSelect', 'qtyInput', 'timeframeSelect', 'serverInput'];
-  elems.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = !!disabled;
-  });
-}
-
 
 /* === LOGGING === */
 function logTrade(msg) {
   const log = document.getElementById('tradeLog');
+  if (!log) return;
   const entry = document.createElement('div');
   entry.textContent = msg;
   log.appendChild(entry);
   log.scrollTop = log.scrollHeight;
 }
 
-// Balance button handler
-document.addEventListener('DOMContentLoaded', () => {
-  const balBtn = document.getElementById('balBtn');
-  const balOut = document.getElementById('balOut');
-  if (balBtn) {
-    balBtn.addEventListener('click', async () => {
-      balOut.textContent = 'Loading...';
-      try {
-        const base = getApiBaseUrl();
-        const url = base ? `${base}/api/balance` : '/api/balance';
-        const res = await axios.get(url);
-        const t = res.data.total ?? 'N/A';
-        const a = res.data.available ?? 'N/A';
-        balOut.textContent = `Total: ${t} USDT — Available: ${a} USDT`;
-      } catch (err) {
-        balOut.textContent = 'Error: ' + (err.response?.data?.error || err.message);
-      }
-    });
-  }
-});
+async function refreshTradeLogs() {
+  const logEl = document.getElementById('tradeLog');
+  if (!logEl) return;
 
-// Persist selected pair, qty and timeframe
-document.getElementById('pairSelect').addEventListener('change', (e) => localStorage.setItem('pair', e.target.value));
-document.getElementById('qtyInput').addEventListener('change', (e) => localStorage.setItem('qty', e.target.value));
-document.getElementById('timeframeSelect').addEventListener('change', (e) => localStorage.setItem('timeframe', e.target.value));
+  const base = getApiBaseUrl();
+  if (!base) return;
 
-// On load, check server-side watcher status so UI can reflect running state across refreshes
-document.addEventListener('DOMContentLoaded', async () => {
   try {
-    const base = getApiBaseUrl();
-    const url = base ? `${base}/api/futures/status` : '/api/futures/status';
-    const res = await axios.get(url).catch(() => ({ data: { running: false } }));
-    const serverRunning = !!res.data.running;
+    const response = await axios.get(`${base}/api/trade-logs`, { timeout: 8000 });
+    const logs = response.data?.logs || [];
+    logEl.innerHTML = '';
 
-    // local preference (what the user clicked) should persist across refreshes
-    const localPref = localStorage.getItem('autoTrading') === 'true';
-
-    const statusEl = document.getElementById('status');
-    const button = document.querySelector('.control-panel button');
-
-    let shouldRun = serverRunning || localPref;
-
-    // If user expects autoTrading to be running (localPref) but server isn't, attempt to start it.
-    if (localPref && !serverRunning) {
-      try {
-        const symbol = document.getElementById('pairSelect').value;
-        const intervalMs = parseInt(document.getElementById('timeframeSelect').value);
-        const intervalMap = { 60000: '1m', 300000: '5m', 900000: '15m', 3600000: '1h' };
-        const interval = intervalMap[intervalMs] || '5m';
-        const startUrl = base ? `${base}/api/futures/start` : '/api/futures/start';
-        await axios.post(startUrl, { symbol, interval });
-        shouldRun = true;
-      } catch (e) {
-        console.warn('Failed to auto-start watcher from local preference', e);
-        shouldRun = serverRunning; // fallback
-      }
-    }
-
-    if (shouldRun) {
-      autoTrading = true;
-      statusEl.innerText = 'Running';
-      button.innerText = 'Stop Auto Trading';
-      setControlsDisabled(true);
-      fetchCandle();
-      candleInterval = setInterval(fetchCandle, 60 * 1000);
-    } else {
-      autoTrading = false;
-      statusEl.innerText = 'Stopped';
-      button.innerText = 'Start Auto Trading';
-      setControlsDisabled(false);
-    }
-  } catch (e) {
-    console.warn('Could not determine watcher status on load', e);
-  }
-});
-
-/* === ALL LOGS PANEL === */
-async function fetchLogs(lines = 500) {
-  try {
-    const base = getApiBaseUrl();
-    const url = base ? `${base}/api/logs?lines=${lines}` : `/api/logs?lines=${lines}`;
-    const res = await axios.get(url);
-    const linesArr = res.data.lines || [];
-    const el = document.getElementById('allLogs');
-    el.innerHTML = '';
-    linesArr.forEach(l => {
-      const d = document.createElement('div');
-      d.textContent = l;
-      if (l.includes('❌')) d.style.color = '#ff6b6b';
-      else if (l.includes('⚠️')) d.style.color = '#f39c12';
-      else if (l.includes('✅')) d.style.color = '#2ecc71';
-      else if (l.includes('🚀')) d.style.color = '#9b59b6';
-      else if (l.includes('🔍')) d.style.color = '#58a6ff';
-      else d.style.color = '#c9d1d9';
-      el.appendChild(d);
+    logs.forEach((line) => {
+      const row = document.createElement('div');
+      row.textContent = line;
+      row.style.marginBottom = '6px';
+      row.style.whiteSpace = 'pre-wrap';
+      row.style.wordBreak = 'break-word';
+      if (line.includes('❌')) row.style.color = '#f85149';
+      else if (line.includes('⚠️')) row.style.color = '#f2cc60';
+      else if (line.includes('✅')) row.style.color = '#3fb950';
+      else if (line.includes('🚀') || line.includes('[Signal]') || line.includes('[Confirmed]')) row.style.color = '#d2a8ff';
+      else row.style.color = '#c9d1d9';
+      logEl.appendChild(row);
     });
-    el.scrollTop = el.scrollHeight;
-  } catch (e) {
-    console.warn('Failed to fetch logs', e);
+
+    logEl.scrollTop = logEl.scrollHeight;
+  } catch (err) {
+    console.warn('trade log refresh failed', err.message);
   }
 }
 
-let _logsInterval;
-function startLogsPolling() {
-  // initial fetch
-  fetchLogs(500);
-  // refresh every 3 seconds
-  _logsInterval = setInterval(() => fetchLogs(500), 3000);
-}
-
-function stopLogsPolling() {
-  if (_logsInterval) clearInterval(_logsInterval);
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  const btn = document.getElementById('refreshLogs');
-  if (btn) btn.addEventListener('click', () => fetchLogs(2000));
-  startLogsPolling();
-});
+setInterval(refreshTradeLogs, 5000);
+setTimeout(refreshTradeLogs, 500);
 </script>
 
 
