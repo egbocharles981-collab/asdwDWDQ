@@ -13,11 +13,14 @@ const futuresController = require('./autotrader');
 
 // ✅ 1️⃣ Fetch latest candlestick data
 router.get('/candle', async (req, res) => {
+  const symbol = req.query.symbol || 'BTCUSDT';
+  const interval = req.query.interval || '5m';
+  console.log(`📊 /candle request - Symbol: ${symbol}, Interval: ${interval}`);
   try {
     await controler.getCandles(req, res);
   } catch (error) {
     console.error('❌ /candle route error:', error.message);
-    res.status(500).json({ error: 'Failed to fetch candle data' });
+    res.status(500).json({ error: 'Failed to fetch candle data', details: error.message });
   }
 });
 

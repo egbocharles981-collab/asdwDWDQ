@@ -171,6 +171,10 @@ let chart, autoTrading = false, isLoggedIn = false;
 // auth removed — initialize chart on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', () => {
   try { initChart(); } catch (e) { console.warn('Chart init failed', e); }
+  // Fetch initial candles after chart is ready
+  setTimeout(() => {
+    fetchCandle().catch(err => console.warn('Initial candle fetch failed:', err));
+  }, 500);
 });
 
 // Restore persisted UI selections
