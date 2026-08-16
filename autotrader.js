@@ -150,6 +150,34 @@ function extractTickerFromResponse(data) {
   return result;
 }
 
+function extractPositionForSymbol(positionInfo, symbol = SYMBOL) {
+  if (Array.isArray(positionInfo)) {
+    return positionInfo.find((p) => p.symbol === symbol) || positionInfo[0] || null;
+  }
+
+  if (Array.isArray(positionInfo?.list)) {
+    return positionInfo.list.find((p) => p.symbol === symbol) || positionInfo.list[0] || null;
+  }
+
+  if (positionInfo?.symbol === symbol) {
+    return positionInfo;
+  }
+
+  return positionInfo || null;
+}
+
+function parsePositionEntryPrice(position) {
+  if (!position) return 0;
+  const entryPrice = position.entryPrice ?? position.entry_price ?? position.avgPrice ?? position.avg_price ?? 0;
+  return Number(entryPrice) || 0;
+}
+
+function parsePositionQty(position) {
+  if (!position) return 0;
+  const qty = position.size ?? position.pos_qty ?? position.positionSize ?? position.position_size ?? 0;
+  return Math.abs(Number(qty) || 0);
+}
+
 function parseTickerPrice(ticker) {
   if (!ticker) return 0;
   const price = ticker.lastPrice ?? ticker.last_price ?? ticker.last_price_e4 ?? ticker.last_price_e5 ?? ticker.mark_price ?? ticker.price ?? ticker.close;
@@ -536,11 +564,9 @@ async function openPosition(side) {
         symbol: SYMBOL,
         settleCoin: "USDT",
       });
-      const position = Array.isArray(positionInfo)
-        ? positionInfo[0]
-        : positionInfo?.list?.[0] || positionInfo;
-      entryPrice = parseFloat(position?.entry_price || 0);
-      actualQty = Math.abs(parseFloat(position?.size || position?.pos_qty || 0));
+      const position = extractPositionForSymbol(positionInfo, SYMBOL);
+      entryPrice = parsePositionEntryPrice(position);
+      actualQty = parsePositionQty(position);
       if (entryPrice > 0 && actualQty > 0) break;
       console.log(chalk.gray("⏳ Waiting for Bybit to confirm entry price..."));
       await sleep(3000);
@@ -658,10 +684,8 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
         }
       }
 
-      const position = Array.isArray(positionInfo)
-        ? positionInfo[0]
-        : positionInfo?.list?.[0] || positionInfo;
-      const posRemaining = Math.abs(parseFloat(position?.size || position?.pos_qty || 0));
+      const position = extractPositionForSymbol(positionInfo, SYMBOL);
+      const posRemaining = parsePositionQty(position);
 
       if (posRemaining <= 0) {
         appendTradeLog(`✅ Position Closed | Profit/Loss Realized`);
@@ -802,6 +826,9 @@ module.exports = {
   setLeverageIfPossible,
   buildExitOrderParams,
   buildSlTpOrders,
+  extractPositionForSymbol,
+  parsePositionEntryPrice,
+  parsePositionQty,
   bybitRequest,
   placeTP_SL,
   getTrailingStopPrice,

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { setLeverageIfPossible, buildExitOrderParams, buildSlTpOrders } = require('../autotrader');
+const { setLeverageIfPossible, buildExitOrderParams, buildSlTpOrders, extractPositionForSymbol, parsePositionEntryPrice, parsePositionQty } = require('../autotrader');
 
 test('returns true when leverage is already set and API reports unchanged', async () => {
   const result = await setLeverageIfPossible(async () => {
@@ -42,10 +42,24 @@ test('builds v5-compatible stop-loss params for a long position', () => {
 });
 
 test('builds sell-side TP/SL orders for a short trade', () => {
-  const orderSet = buildSlTpOrders({ side: 'SELL', entryPrice: 100, qty: 0.5 });
+  const orderSet = buildSlTpOrders({ side: 'SELL', entryPrice: 100, qty: 0.5, tpPercent: 0.017, slPercent: 0.009 });
 
-  assert.equal(orderSet.tp, 98.5);
-  assert.equal(orderSet.sl, 100.7);
+  assert.equal(orderSet.tp, 98.3);
+  assert.equal(orderSet.sl, 100.9);
   assert.equal(orderSet.tpOrder.side, 'Buy');
   assert.equal(orderSet.slOrder.side, 'Buy');
+});
+
+test('reads Bybit v5 camelCase entryPrice and position size fields', () => {
+  const positionInfo = {
+    list: [
+      { symbol: 'BTCUSDT', entryPrice: '63100.5', size: '0.002' },
+      { symbol: 'ETHUSDT', entryPrice: '2000', size: '1' },
+    ],
+  };
+
+  const position = extractPositionForSymbol(positionInfo, 'BTCUSDT');
+
+  assert.equal(parsePositionEntryPrice(position), 63100.5);
+  assert.equal(parsePositionQty(position), 0.002);
 });
