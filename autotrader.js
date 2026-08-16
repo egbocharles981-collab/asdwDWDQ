@@ -15,9 +15,10 @@ const {
 const API_KEY = process.env.API_KEY;
 const API_SECRET = process.env.API_SECRET;
 const BYBIT_BASE_URL = process.env.BYBIT_BASE_URL || 'https://api.bybit.com';
+const LOG_FILE = 'trading-log.txt';
 const SYMBOL = "BTCUSDT";
 const INTERVAL = "1h";
-const QUANTITY = 0.001; // Bybit contract qty may differ from Binance; adjust if needed
+const QUANTITY = 0.003; // Bybit contract qty may differ from Binance; adjust if needed
 const LEVERAGE = 50;
 const TP_PERCENT = 0.017;
 const SL_PERCENT = 0.009;
@@ -66,6 +67,7 @@ let currentPosition = null;
 let lastPositionClosedAt = 0;
 let lastTradeTime = 0;
 let lastConfig = null;
+let activeSignalOrders = new Set();
 
 function formatQty(q) {
   const factor = 10 ** QTY_PRECISION;
@@ -407,6 +409,16 @@ function getSignal(candles) {
   return null;
 }
 
+function appendTradeLog(message) {
+  const entry = `[${new Date().toISOString()}] ${message}\n`;
+  try {
+    fs.appendFileSync(LOG_FILE, entry);
+  } catch (err) {
+    console.warn(chalk.yellow(`⚠️ Unable to append to ${LOG_FILE}: ${err.message}`));
+  }
+  console.log(entry.trim());
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -440,6 +452,7 @@ async function cancelAllOrders() {
       symbol: SYMBOL,
     });
     console.log(chalk.yellow("🧹 Cancelled existing open orders (TP/SL)"));
+    appendTradeLog('🧹 Cancelled existing TP/SL orders before new entry.');
     lastPositionClosedAt = Date.now();
   } catch (e) {
     console.error("⚠️ Failed to cancel open orders:", e.message);
@@ -455,6 +468,7 @@ async function setLeverageIfPossible(requestFn = bybitRequest) {
       sellLeverage: String(LEVERAGE),
     });
     console.log(chalk.green(`✅ Leverage set to ${LEVERAGE}x`));
+    appendTradeLog(`✅ Leverage set to ${LEVERAGE}x.`);
     return true;
   } catch (e) {
     const isAlreadySet = e.message?.includes('leverage not modified') || e.response?.data?.retCode === 110043;
@@ -467,8 +481,41 @@ async function setLeverageIfPossible(requestFn = bybitRequest) {
   }
 }
 
+async function hasOpenPosition(symbol = SYMBOL, requestFn = bybitRequest) {
+  try {
+    const positionInfo = await requestFn('GET', '/v5/position/list', {
+      category: 'linear',
+      symbol,
+      settleCoin: 'USDT',
+    });
+
+    const positions = Array.isArray(positionInfo)
+      ? positionInfo
+      : positionInfo?.list || [];
+
+    const live = positions.filter((pos) => {
+      const size = Math.abs(parseFloat(pos?.size || pos?.pos_qty || 0));
+      const symbolName = String(pos?.symbol || '');
+      return symbolName === symbol && size > 0;
+    });
+
+    return live.length > 0;
+  } catch (e) {
+    console.warn(chalk.yellow(`⚠️ Could not read live position for ${symbol}: ${e.message}`));
+    return false;
+  }
+}
+
 async function openPosition(side) {
   try {
+    const hasExistingPosition = await hasOpenPosition(SYMBOL);
+    if (hasExistingPosition || currentPosition) {
+      const message = `⚠️ Position already active (${currentPosition || 'live'}); skipping new ${side} entry.`;
+      console.log(chalk.yellow(message));
+      appendTradeLog(message);
+      return;
+    }
+
     await cancelAllOrders();
 
     const secondsSinceLastClose = (Date.now() - lastPositionClosedAt) / 1000;
@@ -500,7 +547,9 @@ async function openPosition(side) {
       console.log(chalk.yellow(`⚠️ Reducing order qty from ${QUANTITY} to ${orderQty} due to available balance ${availableBalance} USDT`));
     }
 
-    console.log(`🚀 Opening ${side} (${orderQty}) with available balance ${availableBalance} USDT`);
+    const openingMessage = `🚀 Opening ${side} (${orderQty}) with available balance ${availableBalance} USDT`;
+    console.log(openingMessage);
+    appendTradeLog(openingMessage);
     await bybitRequest("POST", "/v5/order/create", {
       category: "linear",
       symbol: SYMBOL,
@@ -535,13 +584,18 @@ async function openPosition(side) {
       return;
     }
 
-    console.log(chalk.green(`✅ ${side} MARKET order success @ ${entryPrice} with qty ${actualQty}`));
+    const entryMessage = `✅ ${side} MARKET order success @ ${entryPrice} with qty ${actualQty}`;
+    console.log(chalk.green(entryMessage));
+    appendTradeLog(entryMessage);
     await sleep(8000);
 
     const { tp, sl, qty80, remainingQty } = await placeTP_SL(side, entryPrice, actualQty);
-    console.log(`✅ ${side} opened @ ${entryPrice} | 🎯 TP: ${tp.toFixed(2)} | 🛑 SL: ${sl.toFixed(2)} | TP80:${qty80} rem:${remainingQty}`);
+    const filledMessage = `✅ ${side} opened @ ${entryPrice} | 🎯 TP: ${tp.toFixed(2)} | 🛑 SL: ${sl.toFixed(2)} | TP80:${qty80} rem:${remainingQty}`;
+    console.log(filledMessage);
+    appendTradeLog(filledMessage);
 
     currentPosition = side;
+    appendTradeLog(`📈 Trailing stop monitor started for ${side} trade: entry ${entryPrice}, TP ${tp.toFixed(2)}, SL ${sl.toFixed(2)}.`);
     monitorTrailingStop(side, entryPrice, tp, sl, remainingQty);
   } catch (e) {
     console.error("❌ Failed to open position:", e.message);
@@ -553,7 +607,6 @@ async function placeTP_SL(side, entryPrice, orderQty) {
   let sl = 0;
 
   try {
-    const opposite = side === "BUY" ? "SELL" : "BUY";
     const levels = getDistanceBasedLevels(side, entryPrice);
     tp = levels.tp;
     sl = levels.sl;
@@ -568,18 +621,38 @@ async function placeTP_SL(side, entryPrice, orderQty) {
 
     if (remainingQty === 0) {
       console.log(chalk.yellow('⚠️ Order quantity too small for partial TP; using full position for TP and SL protection.'));
+      appendTradeLog(`⚠️ Order quantity too small for partial TP; using full position for TP and SL protection.`);
     }
 
-    console.log(`🎯 TP: ${tp} | 🛑 SL: ${sl}`);
+    const tpSlMessage = `🎯 TP: ${tp} | 🛑 SL: ${sl}`;
+    console.log(tpSlMessage);
+    appendTradeLog(`🛡️ TP/SL setup for ${side}: ${tpSlMessage}`);
 
     const tpResp = await bybitRequest("POST", "/v5/order/create", tpOrder);
-    await bybitRequest("POST", "/v5/order/create", slOrder);
+    const slResp = await bybitRequest("POST", "/v5/order/create", slOrder);
 
-    return { tp, sl, qty80: tpQty, remainingQty, tpOrderId: tpResp?.orderId || null };
+    activeSignalOrders.add(tpResp?.orderId || tpOrder?.orderId || `${side}-tp`);
+    activeSignalOrders.add(slResp?.orderId || slOrder?.orderId || `${side}-sl`);
+
+    appendTradeLog(`✅ TP order created: ${tpResp?.orderId || 'n/a'} | SL order created: ${slResp?.orderId || 'n/a'}`);
+
+    return { tp, sl, qty80: tpQty, remainingQty, tpOrderId: tpResp?.orderId || null, slOrderId: slResp?.orderId || null };
   } catch (e) {
+    const reason = e?.response?.data?.retMsg || e?.response?.data?.message || e?.message || 'unknown error';
+    const payloadSummary = JSON.stringify({
+      side,
+      entryPrice,
+      orderQty,
+      tp,
+      sl,
+      kind: 'TP/SL',
+    });
+
+    const failureMessage = `❌ TP/SL placement failed: ${reason}. Payload: ${payloadSummary}`;
     console.error(chalk.red(`⚠️ Failed to place TP/SL orders: ${e.message}`));
     console.error("Full error:", e);
-    fs.appendFileSync("signals.log", `[${new Date().toISOString()}] ❌ TP/SL error: ${e.message}\n`);
+    appendTradeLog(failureMessage);
+    fs.appendFileSync("signals.log", `[${new Date().toISOString()}] ${failureMessage}\n`);
     return { tp: 0, sl: 0, qty80: 0, remainingQty: 0 };
   }
 }
@@ -595,6 +668,7 @@ function getTrailingStopPrice(side, currentPrice, pips) {
 async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
   try {
     console.log(chalk.gray("📈 Monitoring trailing stop..."));
+    appendTradeLog(`📈 Monitoring trailing stop for ${side} position.`);
 
     const triggerPrice = side === "BUY"
       ? entryPrice + (tp - entryPrice) * TRAILING_TRIGGER_RATIO
@@ -682,14 +756,19 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
         await bybitRequest("POST", "/v5/order/create", stopOrder);
         lastStopPrice = nextStopPrice;
 
-        console.log(chalk.cyan(`🛑 Trailing SL ${stopGapPips} pips behind price for ${formatQty(posRemaining)} @ ${nextStopPrice.toFixed(8)}`));
+        const trailingMessage = `🛑 Trailing SL ${stopGapPips} pips behind price for ${formatQty(posRemaining)} @ ${nextStopPrice.toFixed(8)}`;
+        console.log(chalk.cyan(trailingMessage));
+        appendTradeLog(trailingMessage);
       }
 
       await sleep(5000);
     }
   } catch (e) {
+    const reason = e?.response?.data?.retMsg || e?.response?.data?.message || e?.message || 'unknown error';
+    const trailFailure = `❌ Trailing monitor failed: ${reason}. side=${side}, entryPrice=${entryPrice}, tp=${tp}, sl=${sl}, remainingQty=${remainingQty}`;
     console.error("⚠️ Error in trailing stop monitor:", e.message);
-    fs.appendFileSync("signals.log", `[${new Date().toISOString()}] ❌ trailing-monitor error: ${e.message}\n`);
+    appendTradeLog(trailFailure);
+    fs.appendFileSync("signals.log", `[${new Date().toISOString()}] ${trailFailure}\n`);
   }
 }
 
@@ -705,14 +784,24 @@ async function tradingWatcher() {
       return;
     }
 
+    const hasLivePosition = await hasOpenPosition(SYMBOL);
+    if (hasLivePosition || currentPosition) {
+      console.log(chalk.gray('ℹ️ Live position already open; skipping new signal until current trade is closed.'));
+      return;
+    }
+
     if (signal && signal !== currentPosition) {
-      console.log(chalk.magenta(`[Signal] ${signal} detected. Waiting ${CONFIRMATION_WAIT / 1000}s for confirmation...`));
+      const signalMessage = `[Signal] ${signal} detected. Waiting ${CONFIRMATION_WAIT / 1000}s for confirmation...`;
+      console.log(chalk.magenta(signalMessage));
+      appendTradeLog(signalMessage);
       await sleep(CONFIRMATION_WAIT);
       const newCandles = await getCandles();
       const confirmSignal = getSignal(newCandles);
 
       if (confirmSignal === signal) {
-        console.log(chalk.green(`[Confirmed] ${signal} still valid after ${CONFIRMATION_WAIT / 1000}s.`));
+        const confirmMessage = `[Confirmed] ${signal} still valid after ${CONFIRMATION_WAIT / 1000}s.`;
+        console.log(chalk.green(confirmMessage));
+        appendTradeLog(confirmMessage);
         await openPosition(signal);
         lastTradeTime = Date.now();
       } else {
@@ -758,6 +847,7 @@ module.exports = {
   setLeverageIfPossible,
   buildExitOrderParams,
   buildSlTpOrders,
+  hasOpenPosition,
   bybitRequest,
   placeTP_SL,
   getTrailingStopPrice,
