@@ -218,3 +218,58 @@ exports.executeTrade = async (req, res) => {
     });
   }
 };
+
+exports.getBalance = async (req, res) => {
+  if (!HAS_API_CREDS) {
+    const msg = 'API credentials are not configured. Cannot fetch balance.';
+    logToFile(`⚠️ ${msg}`);
+    return res.status(503).json({ error: msg, total: 'N/A', available: 'N/A' });
+  }
+
+  try {
+    const timestamp = Date.now();
+    const params = { accountType: 'UNIFIED' };
+    const query = buildQuery(params);
+    const signature = signParams(params);
+
+    logToFile(`🔍 Fetching account balance...`);
+
+    const resp = await requestWithRetry('get', `${BYBIT_URL}/v5/account/wallet-balance?${query}&timestamp=${timestamp}&sign=${signature}`, {
+      headers: {
+        'X-BAPI-API-KEY': API_KEY,
+        'X-BAPI-TIMESTAMP': timestamp,
+        'X-BAPI-RECV-WINDOW': RECV_WINDOW,
+        'X-BAPI-SIGN': signature,
+      },
+    });
+
+    const data = resp.data.result || {};
+    const coins = data.list?.[0]?.coin || [];
+    
+    let totalBalance = 0;
+    let availableBalance = 0;
+    
+    coins.forEach((coin) => {
+      if (coin.coin === 'USDT') {
+        totalBalance = parseFloat(coin.walletBalance || 0);
+        availableBalance = parseFloat(coin.availableToWithdraw || coin.walletBalance || 0);
+      }
+    });
+
+    logToFile(`✅ Balance fetched: Total=${totalBalance.toFixed(2)} USDT, Available=${availableBalance.toFixed(2)} USDT`);
+    res.json({
+      total: totalBalance.toFixed(2),
+      available: availableBalance.toFixed(2),
+      currency: 'USDT',
+    });
+  } catch (error) {
+    const errMsg = error.response?.data?.retMsg || error.message;
+    logToFile(`❌ Balance Fetch Error: ${errMsg}`);
+    res.status(500).json({
+      error: 'Failed to fetch balance',
+      details: errMsg,
+      total: 'N/A',
+      available: 'N/A',
+    });
+  }
+};

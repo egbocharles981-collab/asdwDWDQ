@@ -94,4 +94,46 @@ router.get('/ip', async (req, res) => {
   }
 });
 
+// ✅ 6️⃣ Get account balance
+router.get('/balance', async (req, res) => {
+  try {
+    await controler.getBalance(req, res);
+  } catch (error) {
+    console.error('❌ /balance route error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch balance', total: 'N/A', available: 'N/A' });
+  }
+});
+
+// ✅ 7️⃣ Get futures trading watcher status
+router.get('/futures/status', (req, res) => {
+  try {
+    const isRunning = futuresController.isTradingWatcherRunning() || false;
+    res.json({ running: isRunning });
+  } catch (error) {
+    console.error('❌ /futures/status route error:', error.message);
+    res.status(500).json({ running: false, error: error.message });
+  }
+});
+
+// ✅ 8️⃣ Get recent logs (configurable line count)
+router.get('/logs', (req, res) => {
+  try {
+    const lines = parseInt(req.query.lines) || 500;
+    const logPath = path.join(__dirname, 'trading-log.txt');
+    
+    if (!fs.existsSync(logPath)) {
+      return res.json({ lines: [] });
+    }
+
+    const data = fs.readFileSync(logPath, 'utf8');
+    const allLines = data.split(/\r?\n/).filter(Boolean);
+    const recentLines = allLines.slice(-Math.max(1, lines));
+    
+    res.json({ lines: recentLines });
+  } catch (error) {
+    console.error('❌ /logs route error:', error.message);
+    res.status(500).json({ lines: [], error: error.message });
+  }
+});
+
 module.exports = router;
