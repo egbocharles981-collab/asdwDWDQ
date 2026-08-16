@@ -130,6 +130,17 @@
     <div class="log" id="allLogs"></div>
     <button id="refreshLogs" style="max-width:220px;margin-top:8px;">Refresh Logs</button>
   </div>
+
+  <!-- Trade Details & History (Persistent) -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <h2>📊 Trade Details & History (Persistent)</h2>
+    <p style="color: #8b949e; font-size: 12px; margin: 0 0 10px 0;">Entry logs, TP/SL placement, trail stop adjustments, and Bybit errors. This box persists for 7 days.</p>
+    <div class="log" id="tradeDetails" style="height: 300px;"></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+      <button id="refreshTradeDetails" style="max-width: 100%;">Refresh Trade Details</button>
+      <button id="clearTradeDetails" style="max-width: 100%; background: #da3633;">Clear History</button>
+    </div>
+  </div>
 </div>
 
 <!-- Balance display -->
@@ -475,7 +486,150 @@ document.addEventListener('DOMContentLoaded', () => {
   const btn = document.getElementById('refreshLogs');
   if (btn) btn.addEventListener('click', () => fetchLogs(2000));
   startLogsPolling();
+
+  // Trade Details handlers
+  const refreshTradeDetailsBtn = document.getElementById('refreshTradeDetails');
+  const clearTradeDetailsBtn = document.getElementById('clearTradeDetails');
+  
+  if (refreshTradeDetailsBtn) {
+    refreshTradeDetailsBtn.addEventListener('click', () => {
+      fetchTradeDetails();
+    });
+  }
+
+  if (clearTradeDetailsBtn) {
+    clearTradeDetailsBtn.addEventListener('click', () => {
+      if (confirm('⚠️ Clear trade history? This cannot be undone.')) {
+        localStorage.removeItem('tradeDetails');
+        localStorage.removeItem('tradeDetailsExpiry');
+        document.getElementById('tradeDetails').innerHTML = '';
+      }
+    });
+  }
+
+  // Load trade details from storage on page load
+  loadTradeDetailsFromStorage();
+  
+  // Auto-fetch trade details every 10 seconds
+  setInterval(() => {
+    if (autoTrading) {
+      fetchTradeDetails();
+    }
+  }, 10000);
 });
+
+/* === TRADE DETAILS (PERSISTENT BOX) === */
+const TRADE_DETAILS_STORAGE_KEY = 'tradeDetails';
+const TRADE_DETAILS_EXPIRY_KEY = 'tradeDetailsExpiry';
+const TRADE_DETAILS_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function isTradeDetailsExpired() {
+  const expiry = localStorage.getItem(TRADE_DETAILS_EXPIRY_KEY);
+  if (!expiry) return false;
+  return Date.now() > parseInt(expiry);
+}
+
+function getStoredTradeDetails() {
+  if (isTradeDetailsExpired()) {
+    localStorage.removeItem(TRADE_DETAILS_STORAGE_KEY);
+    localStorage.removeItem(TRADE_DETAILS_EXPIRY_KEY);
+    return [];
+  }
+  const stored = localStorage.getItem(TRADE_DETAILS_STORAGE_KEY);
+  return stored ? JSON.parse(stored) : [];
+}
+
+function saveTradeDetailsToStorage(details) {
+  localStorage.setItem(TRADE_DETAILS_STORAGE_KEY, JSON.stringify(details));
+  localStorage.setItem(TRADE_DETAILS_EXPIRY_KEY, (Date.now() + TRADE_DETAILS_EXPIRY_MS).toString());
+}
+
+function loadTradeDetailsFromStorage() {
+  const details = getStoredTradeDetails();
+  displayTradeDetails(details);
+}
+
+function isTradeSpecificLog(line) {
+  // Filter for trade-related logs: Entry, TP/SL, Trail, Errors
+  const tradeKeywords = [
+    'Entry', 'Entry Filled', 'Entry Failed',
+    'TP/SL', 'Trail', 'Trailing', 'Position Closed',
+    'Confirmed', 'Signal', 'Trade',
+    '❌', '❗', 'Error', 'Failed'
+  ];
+  return tradeKeywords.some(keyword => line.includes(keyword));
+}
+
+async function fetchTradeDetails() {
+  try {
+    const base = getApiBaseUrl();
+    const url = base ? `${base}/api/logs?lines=1000` : `/api/logs?lines=1000`;
+    const res = await axios.get(url);
+    const allLines = res.data.lines || [];
+    
+    // Filter for trade-specific logs
+    const tradeLines = allLines.filter(isTradeSpecificLog);
+    
+    // Remove duplicates (by comparing with stored)
+    const storedDetails = getStoredTradeDetails();
+    const storedSet = new Set(storedDetails);
+    
+    const newDetails = tradeLines.filter(line => !storedSet.has(line));
+    
+    // Merge and keep latest 200 entries
+    const allDetails = [...storedDetails, ...newDetails].slice(-200);
+    
+    saveTradeDetailsToStorage(allDetails);
+    displayTradeDetails(allDetails);
+  } catch (e) {
+    console.warn('Failed to fetch trade details', e);
+  }
+}
+
+function displayTradeDetails(details) {
+  const el = document.getElementById('tradeDetails');
+  if (!el) return;
+  
+  el.innerHTML = '';
+  
+  if (details.length === 0) {
+    const emptyMsg = document.createElement('div');
+    emptyMsg.textContent = '📭 No trade details yet. Logs will appear here when trading starts.';
+    emptyMsg.style.color = '#8b949e';
+    el.appendChild(emptyMsg);
+    return;
+  }
+
+  details.forEach(line => {
+    const d = document.createElement('div');
+    d.textContent = line;
+    d.style.marginBottom = '4px';
+    d.style.fontSize = '13px';
+    d.style.lineHeight = '1.4';
+    d.style.fontFamily = 'monospace';
+    
+    // Color coding
+    if (line.includes('❌') || line.includes('Error') || line.includes('Failed')) {
+      d.style.color = '#ff6b6b';
+    } else if (line.includes('⚠️')) {
+      d.style.color = '#f39c12';
+    } else if (line.includes('✅') || line.includes('Filled') || line.includes('Closed')) {
+      d.style.color = '#2ecc71';
+    } else if (line.includes('🚀') || line.includes('Signal')) {
+      d.style.color = '#9b59b6';
+    } else if (line.includes('📍') || line.includes('Trail')) {
+      d.style.color = '#3498db';
+    } else if (line.includes('Confirmed')) {
+      d.style.color = '#1abc9c';
+    } else {
+      d.style.color = '#c9d1d9';
+    }
+    
+    el.appendChild(d);
+  });
+  
+  el.scrollTop = el.scrollHeight;
+}
 </script>
 
 
