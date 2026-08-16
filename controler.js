@@ -104,8 +104,6 @@ exports.getCandles = async (req, res) => {
   const interval = req.query.interval || '5m';
 
   try {
-    logToFile(`🔍 Fetching ${interval} candles for ${symbol}`);
-
     const response = await requestWithRetry('get', `${BYBIT_URL}/v5/market/kline`, {
       params: { symbol, interval: mapIntervalToBybit(interval), limit: 100 },
     });
@@ -147,11 +145,10 @@ exports.getCandles = async (req, res) => {
       sma10: i >= 9 ? sma10[i - 9] : null,
     }));
 
-    logToFile(`✅ Candles + SMA fetched for ${symbol} (${candles.length} entries)`);
     res.json({ symbol, interval, candles: fullData });
   } catch (error) {
     const errMsg = error.response?.data?.ret_msg || error.message;
-    logToFile(`❌ Candle Fetch Error: ${errMsg}`);
+    console.error(`❌ Candle Fetch Error: ${errMsg}`);
     res.status(500).json({ error: 'Failed to fetch candle data', details: errMsg });
   }
 };
