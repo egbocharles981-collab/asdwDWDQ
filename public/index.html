@@ -550,14 +550,46 @@ function loadTradeDetailsFromStorage() {
 }
 
 function isTradeSpecificLog(line) {
-  // Filter for trade-related logs: Entry, TP/SL, Trail, Errors
-  const tradeKeywords = [
-    'Entry', 'Entry Filled', 'Entry Failed',
-    'TP/SL', 'Trail', 'Trailing', 'Position Closed',
-    'Confirmed', 'Signal', 'Trade',
-    '❌', '❗', 'Error', 'Failed'
+  if (!line || typeof line !== 'string') return false;
+
+  const text = line.trim();
+  if (!text) return false;
+
+  // explicit non-trade noise to ignore
+  const blockedPatterns = [
+    'Candle Fetch Error',
+    'Fetching',
+    'Candles + SMA',
+    'No candle data',
+    'api.bybit.com',
+    'Failed to fetch candle data',
+    'Candle'
   ];
-  return tradeKeywords.some(keyword => line.includes(keyword));
+
+  if (blockedPatterns.some(pattern => text.includes(pattern))) {
+    return false;
+  }
+
+  const tradeKeywords = [
+    'Signal',
+    'Confirmed',
+    'Entry Price',
+    'Entry Filled',
+    'Entry Failed',
+    'TP/SL',
+    'Trail',
+    'Trailing',
+    'Position Closed',
+    'Trade',
+    'Qty reduced',
+    'Insufficient balance',
+    'invalidated',
+    'Opening position',
+    'trade details',
+    'Bybit'
+  ];
+
+  return tradeKeywords.some(keyword => text.includes(keyword));
 }
 
 async function fetchTradeDetails() {
@@ -566,19 +598,13 @@ async function fetchTradeDetails() {
     const url = base ? `${base}/api/logs?lines=1000` : `/api/logs?lines=1000`;
     const res = await axios.get(url);
     const allLines = res.data.lines || [];
-    
-    // Filter for trade-specific logs
+
+    const cleanedStored = getStoredTradeDetails().filter(isTradeSpecificLog);
     const tradeLines = allLines.filter(isTradeSpecificLog);
-    
-    // Remove duplicates (by comparing with stored)
-    const storedDetails = getStoredTradeDetails();
-    const storedSet = new Set(storedDetails);
-    
+    const storedSet = new Set(cleanedStored);
     const newDetails = tradeLines.filter(line => !storedSet.has(line));
-    
-    // Merge and keep latest 200 entries
-    const allDetails = [...storedDetails, ...newDetails].slice(-200);
-    
+    const allDetails = [...cleanedStored, ...newDetails].slice(-200);
+
     saveTradeDetailsToStorage(allDetails);
     displayTradeDetails(allDetails);
   } catch (e) {
