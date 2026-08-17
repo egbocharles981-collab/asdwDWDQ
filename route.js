@@ -18,6 +18,13 @@ try {
   futuresController = require('./autotrader');
 }
 
+let closeAllController;
+try {
+  closeAllController = require(path.join(PROJECT_ROOT, 'closeAllTrades.js'));
+} catch (e) {
+  closeAllController = require('./closeAllTrades');
+}
+
 // Diagnostic: log futuresController shape (helps debug on Render)
 try {
   console.log('futuresController type:', typeof futuresController);
@@ -108,6 +115,28 @@ router.get('/futures/status', async (req, res) => {
   } catch (err) {
     console.error('❌ /futures/status error:', err && err.stack ? err.stack : err.message || err);
     res.status(500).json({ running: false, error: 'Failed to determine watcher status' });
+  }
+});
+
+// ✅ 6️⃣ Close all open positions and outstanding orders
+router.post('/close-all', async (req, res) => {
+  try {
+    if (!closeAllController) {
+      throw new Error('Close-all controller not found');
+    }
+
+    if (typeof closeAllController.closeAllPositions === 'function') {
+      await closeAllController.closeAllPositions();
+    } else if (closeAllController.default && typeof closeAllController.default.closeAllPositions === 'function') {
+      await closeAllController.default.closeAllPositions();
+    } else {
+      throw new Error('closeAllPositions not available');
+    }
+
+    res.json({ success: true, message: 'Close-all operation completed.' });
+  } catch (error) {
+    console.error('❌ /close-all error:', error && error.stack ? error.stack : error.message || error);
+    res.status(500).json({ success: false, message: 'Failed to close positions', error: error.message || String(error) });
   }
 });
 

@@ -71,7 +71,7 @@ function buildExitOrderParams({ side, symbol = 'BTCUSDT', triggerPrice, qty, kin
 
   if (isTakeProfit) {
     params.price = String(normalizedTriggerPrice);
-    params.timeInForce = 'GoodTillCancel';
+    params.timeInForce = 'GTC';
   } else {
     params.basePrice = String(normalizedTriggerPrice);
   }

@@ -146,6 +146,7 @@
 <!-- Balance display -->
 <div style="padding:12px;">
   <button id="balBtn" style="max-width:220px;">Show Balance</button>
+  <button id="closeAllBtn" style="max-width:220px; background:#d85151; margin-top:8px;">Close All Positions</button>
   <div id="balOut" style="margin-top:8px;font-weight:700;color:#c9d1d9;">-</div>
 </div>
 
@@ -372,6 +373,8 @@ function logTrade(msg) {
 document.addEventListener('DOMContentLoaded', () => {
   const balBtn = document.getElementById('balBtn');
   const balOut = document.getElementById('balOut');
+  const closeAllBtn = document.getElementById('closeAllBtn');
+
   if (balBtn) {
     balBtn.addEventListener('click', async () => {
       balOut.textContent = 'Loading...';
@@ -384,6 +387,30 @@ document.addEventListener('DOMContentLoaded', () => {
         balOut.textContent = `Total: ${t} USDT — Available: ${a} USDT`;
       } catch (err) {
         balOut.textContent = 'Error: ' + (err.response?.data?.error || err.message);
+      }
+    });
+  }
+
+  if (closeAllBtn) {
+    closeAllBtn.addEventListener('click', async () => {
+      const confirmed = confirm('⚠️ Close all open futures positions and cancel open orders? This cannot be undone.');
+      if (!confirmed) return;
+
+      closeAllBtn.disabled = true;
+      closeAllBtn.textContent = 'Closing...';
+      logTrade('🛑 Closing all open positions...');
+
+      try {
+        const base = getApiBaseUrl();
+        const url = base ? `${base}/api/close-all` : '/api/close-all';
+        const res = await axios.post(url);
+        logTrade(`✅ ${res.data?.message || 'All positions closed.'}`);
+      } catch (err) {
+        const message = err.response?.data?.message || err.message || 'Unknown error';
+        logTrade(`❌ Close all failed: ${message}`);
+      } finally {
+        closeAllBtn.disabled = false;
+        closeAllBtn.textContent = 'Close All Positions';
       }
     });
   }

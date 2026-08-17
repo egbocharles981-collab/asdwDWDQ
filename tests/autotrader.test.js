@@ -27,6 +27,7 @@ test('builds v5-compatible take-profit params for a long position', () => {
   assert.equal(params.triggerDirection, 1);
   assert.equal(params.reduceOnly, true);
   assert.equal(params.closeOnTrigger, true);
+  assert.equal(params.timeInForce, 'GTC');
 });
 
 test('builds v5-compatible stop-loss params for a long position', () => {
