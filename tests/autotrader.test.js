@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { setLeverageIfPossible, buildExitOrderParams, buildSlTpOrders, extractPositionForSymbol, parsePositionEntryPrice, parsePositionQty } = require('../autotrader');
+const { setLeverageIfPossible, buildExitOrderParams, buildSlTpOrders, extractPositionForSymbol, parsePositionEntryPrice, parsePositionQty, getNextTrailingStopPrice } = require('../autotrader');
+const { buildClosePositionOrder } = require('../closeAllTrades');
 
 test('returns true when leverage is already set and API reports unchanged', async () => {
   const result = await setLeverageIfPossible(async () => {
@@ -63,4 +64,37 @@ test('reads Bybit v5 camelCase entryPrice and position size fields', () => {
 
   assert.equal(parsePositionEntryPrice(position), 63100.5);
   assert.equal(parsePositionQty(position), 0.002);
+});
+
+test('keeps long trailing stops from moving backward after a price pullback', () => {
+  const priorStop = 64640;
+  const nextStop = getNextTrailingStopPrice('BUY', 64790, 200, priorStop);
+
+  assert.equal(nextStop, 64640);
+});
+
+test('keeps short trailing stops from moving backward after a price bounce', () => {
+  const priorStop = 64620;
+  const nextStop = getNextTrailingStopPrice('SELL', 64600, 200, priorStop);
+
+  assert.equal(nextStop, 64620);
+});
+
+test('moves a long stop only in the profit direction', () => {
+  const stop = getNextTrailingStopPrice('BUY', 64830, 200, 64640);
+  assert.equal(stop, 64640);
+  const betterStop = getNextTrailingStopPrice('BUY', 64950, 200, 64640);
+  assert.equal(betterStop, 64750);
+});
+
+test('builds a valid Bybit close-all market order for linear contracts', () => {
+  const order = buildClosePositionOrder('BTCUSDT', 'Sell', 0.002);
+
+  assert.equal(order.category, 'linear');
+  assert.equal(order.side, 'Sell');
+  assert.equal(order.orderType, 'Market');
+  assert.equal(order.qty, '0.002');
+  assert.equal(order.reduceOnly, true);
+  assert.equal(order.positionIdx, 0);
+  assert.equal(order.orderFilter, 'Order');
 });

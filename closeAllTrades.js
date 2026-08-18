@@ -156,6 +156,21 @@ async function cancelAllOrders() {
   }
 }
 
+function buildClosePositionOrder(symbol, side, qty) {
+  return {
+    category: "linear",
+    symbol,
+    side,
+    orderType: "Market",
+    qty: String(qty),
+    reduceOnly: true,
+    closeOnTrigger: true,
+    positionIdx: 0,
+    orderFilter: "Order",
+    timeInForce: "GTC",
+  };
+}
+
 // === Close all open positions ===
 async function closeAllPositions() {
   try {
@@ -187,14 +202,7 @@ async function closeAllPositions() {
       try {
         console.log(chalk.yellow(`    ⏳ Closing with ${closingSide} market order...`));
         
-        const orderResult = await bybitRequest("POST", "/v5/order/create", {
-          category: "linear",
-          symbol: symbol,
-          side: closingSide,
-          orderType: "Market",
-          qty: String(quantity),
-          reduceOnly: true,
-        });
+        const orderResult = await bybitRequest("POST", "/v5/order/create", buildClosePositionOrder(symbol, closingSide, quantity));
 
         console.log(chalk.green(`    ✅ ${symbol} CLOSED successfully`));
         console.log(chalk.gray(`       Order ID: ${orderResult.orderId || orderResult.order_id}\n`));
@@ -236,4 +244,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { closeAllPositions, cancelAllOrders };
+module.exports = { closeAllPositions, cancelAllOrders, buildClosePositionOrder };

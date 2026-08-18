@@ -22,9 +22,9 @@ const LEVERAGE = 50;
 const TP_PERCENT = 0.017;
 const SL_PERCENT = 0.009;
 const TRAILING_TRIGGER_RATIO = 0.4;
-const TRAILING_STOP_PIPS_ACTIVE = 200;
-const TRAILING_STOP_PIPS_REMAINING = 100;
-const TRAILING_PIP_SIZE = 1;
+const TRAILING_STOP_POINTS_ACTIVE = 200;
+const TRAILING_STOP_POINTS_REMAINING = 100;
+const TRAILING_POINT_SIZE = 1;
 const INITIAL_TP_POINTS = 1000;
 const INITIAL_SL_POINTS = 500;
 
@@ -642,12 +642,26 @@ async function placeTP_SL(side, entryPrice, orderQty) {
   }
 }
 
-function getTrailingStopPrice(side, currentPrice, pips) {
-  const pipValue = Number((Math.abs(pips) * TRAILING_PIP_SIZE).toFixed(PRICE_PRECISION));
+function getTrailingStopPrice(side, currentPrice, points) {
+  const pointValue = Number((Math.abs(points) * TRAILING_POINT_SIZE).toFixed(PRICE_PRECISION));
   if (side === "BUY") {
-    return Number((currentPrice - pipValue).toFixed(PRICE_PRECISION));
+    return Number((currentPrice - pointValue).toFixed(PRICE_PRECISION));
   }
-  return Number((currentPrice + pipValue).toFixed(PRICE_PRECISION));
+  return Number((currentPrice + pointValue).toFixed(PRICE_PRECISION));
+}
+
+function getNextTrailingStopPrice(side, currentPrice, points, lastStopPrice = null) {
+  const nextStopPrice = getTrailingStopPrice(side, currentPrice, points);
+
+  if (lastStopPrice === null) {
+    return nextStopPrice;
+  }
+
+  if (side === "BUY") {
+    return Math.max(lastStopPrice, nextStopPrice);
+  }
+
+  return Math.min(lastStopPrice, nextStopPrice);
 }
 
 async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
@@ -662,7 +676,7 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
 
     let lastStopPrice = null;
     let partialTpClosed = false;
-    let stopGapPips = TRAILING_STOP_PIPS_ACTIVE;
+    let stopGapPoints = TRAILING_STOP_POINTS_ACTIVE;
 
     while (currentPosition === side) {
       let positionInfo;
@@ -725,10 +739,10 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
 
       if ((side === "BUY" && price >= tp) || (side === "SELL" && price <= tp)) {
         partialTpClosed = true;
-        stopGapPips = TRAILING_STOP_PIPS_REMAINING;
+        stopGapPoints = TRAILING_STOP_POINTS_REMAINING;
       }
 
-      const nextStopPrice = getTrailingStopPrice(side, price, stopGapPips);
+      const nextStopPrice = getNextTrailingStopPrice(side, price, stopGapPoints, lastStopPrice);
       if (lastStopPrice === null || Math.abs(nextStopPrice - lastStopPrice) >= 0.01) {
         await cancelAllOrders();
 
@@ -739,8 +753,8 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
         await bybitRequest("POST", "/v5/order/create", stopOrder);
         lastStopPrice = nextStopPrice;
 
-        appendTradeLog(`📍 Trail SL: Price=${price} | SL=${nextStopPrice} | Gap=${stopGapPips}pips | Qty=${formatQty(posRemaining)}`);
-        console.log(chalk.cyan(`🛑 Trailing SL ${stopGapPips} pips behind price for ${formatQty(posRemaining)} @ ${nextStopPrice.toFixed(8)}`));
+        appendTradeLog(`📍 Trail SL: Price=${price} | SL=${nextStopPrice} | Gap=${stopGapPoints}pts | Qty=${formatQty(posRemaining)}`);
+        console.log(chalk.cyan(`🛑 Trailing SL ${stopGapPoints} points behind price for ${formatQty(posRemaining)} @ ${nextStopPrice.toFixed(8)}`));
       }
 
       await sleep(5000);
@@ -832,4 +846,5 @@ module.exports = {
   bybitRequest,
   placeTP_SL,
   getTrailingStopPrice,
+  getNextTrailingStopPrice,
 };
