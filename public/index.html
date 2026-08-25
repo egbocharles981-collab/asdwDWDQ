@@ -114,9 +114,9 @@
     <label>Timeframe</label>
     <select id="timeframeSelect">
       <option value="60000">1 Minute</option>
-      <option value="300000" selected>5 Minutes</option>
+      <option value="300000">5 Minutes</option>
       <option value="900000">15 Minutes</option>
-      <option value="3600000">1 Hour</option>
+      <option value="3600000" selected>1 Hour</option>
 
     </select>
 
@@ -310,7 +310,7 @@ async function toggleTrading() {
   const button = document.querySelector('.control-panel button');
   const symbol = document.getElementById('pairSelect').value;
   const intervalMs = parseInt(document.getElementById('timeframeSelect').value);
-  const intervalMap = { 60000: '1m', 300000: '5m', 900000: '15m' };
+  const intervalMap = { 60000: '1m', 300000: '5m', 900000: '15m', 3600000: '1h' };
   const interval = intervalMap[intervalMs] || '1m';
 
   try {

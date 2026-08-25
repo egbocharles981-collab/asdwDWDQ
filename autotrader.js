@@ -432,7 +432,7 @@ function getSignal(candles) {
   const sma5 = SMA.calculate({ period: 5, values: closes });
   const sma10 = SMA.calculate({ period: 10, values: closes });
 
-  const crossovers = countMovingAverageCrossovers(candles, 5, 10, 7);
+  const crossovers = countMovingAverageCrossovers(candles, 5, 10, 10);
   if (crossovers > 0) {
     console.log(chalk.gray(`ℹ️ Skipping entry: ${crossovers} SMA crossovers detected in the last 7 candles.`));
     return null;
