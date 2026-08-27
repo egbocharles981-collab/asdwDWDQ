@@ -73,6 +73,8 @@ function appendTradeLog(message) {
 
 let timeOffset = 0;
 let watcherInterval = null;
+let currentSymbol = SYMBOL;
+let currentInterval = INTERVAL;
 
 let currentPosition = null;
 let lastPositionClosedAt = 0;
@@ -92,7 +94,7 @@ function formatPrice(p) {
 function buildExitOrderParams(side, triggerPrice, qty, kind) {
   const params = buildSLTPExitOrderParams({
     side,
-    symbol: SYMBOL,
+    symbol: currentSymbol,
     triggerPrice,
     qty,
     kind,
@@ -111,7 +113,7 @@ function buildSlTpOrders({ side, entryPrice, qty, tpPercent = TP_PERCENT, slPerc
     qty,
     tpPercent,
     slPercent,
-    symbol: SYMBOL,
+    symbol: currentSymbol,
   });
 
   if (orderSet?.tpOrder) {
@@ -366,13 +368,13 @@ function mapIntervalToBybit(interval) {
 }
 
 async function getCandles() {
-  const intervalValue = mapIntervalToBybit(INTERVAL);
+  const intervalValue = mapIntervalToBybit(currentInterval);
   // public market data: retry transient network errors
   let data;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
       const resp = await axios.get(`${BYBIT_BASE_URL}/v5/market/kline`, {
-        params: { symbol: SYMBOL, interval: intervalValue, limit: 100 },
+        params: { symbol: currentSymbol, interval: intervalValue, limit: 100 },
         timeout: 15000,
       });
       data = resp.data;
@@ -478,7 +480,7 @@ async function cancelAllOrders() {
   try {
     await bybitRequest("POST", "/v5/order/cancel-all", {
       category: "linear",
-      symbol: SYMBOL,
+      symbol: currentSymbol,
     });
     console.log(chalk.yellow("🧹 Cancelled existing open orders (TP/SL)"));
     lastPositionClosedAt = Date.now();
@@ -491,7 +493,7 @@ async function setLeverageIfPossible(requestFn = bybitRequest) {
   try {
     await requestFn("POST", "/v5/position/set-leverage", {
       category: "linear",
-      symbol: SYMBOL,
+      symbol: currentSymbol,
       buyLeverage: String(LEVERAGE),
       sellLeverage: String(LEVERAGE),
     });
@@ -522,7 +524,7 @@ async function openPosition(side) {
     const bybitSide = toBybitSide(side);
     await setLeverageIfPossible();
 
-    const price = await getLatestPrice(SYMBOL);
+    const price = await getLatestPrice(currentSymbol);
     if (!price || price <= 0) {
       console.log(chalk.red('❌ Could not retrieve market price; aborting entry.'));
       return;
@@ -547,7 +549,7 @@ async function openPosition(side) {
     console.log(`🚀 Opening ${side} (${orderQty}) with available balance ${availableBalance} USDT`);
     await bybitRequest("POST", "/v5/order/create", {
       category: "linear",
-      symbol: SYMBOL,
+      symbol: currentSymbol,
       side: bybitSide,
       orderType: "Market",
       qty: String(orderQty),
@@ -561,10 +563,10 @@ async function openPosition(side) {
     for (let i = 0; i < 6; i += 1) {
       const positionInfo = await bybitRequest("GET", "/v5/position/list", {
         category: "linear",
-        symbol: SYMBOL,
+        symbol: currentSymbol,
         settleCoin: "USDT",
       });
-      const position = extractPositionForSymbol(positionInfo, SYMBOL);
+      const position = extractPositionForSymbol(positionInfo, currentSymbol);
       entryPrice = parsePositionEntryPrice(position);
       actualQty = parsePositionQty(position);
       if (entryPrice > 0 && actualQty > 0) break;
@@ -684,7 +686,7 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
         try {
           positionInfo = await bybitRequest("GET", "/v5/position/list", {
             category: "linear",
-            symbol: SYMBOL,
+            symbol: currentSymbol,
             settleCoin: "USDT",
           });
           break;
@@ -698,7 +700,7 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
         }
       }
 
-      const position = extractPositionForSymbol(positionInfo, SYMBOL);
+      const position = extractPositionForSymbol(positionInfo, currentSymbol);
       const posRemaining = parsePositionQty(position);
 
       if (posRemaining <= 0) {
@@ -711,7 +713,7 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
       let tickerData;
       for (let a = 1; a <= 3; a += 1) {
         try {
-          const resp = await axios.get(`${BYBIT_BASE_URL}/v5/market/tickers`, { params: { symbol: SYMBOL, category: 'linear' }, timeout: 8000 });
+          const resp = await axios.get(`${BYBIT_BASE_URL}/v5/market/tickers`, { params: { symbol: currentSymbol, category: 'linear' }, timeout: 8000 });
           tickerData = resp.data;
           break;
         } catch (err) {
@@ -810,11 +812,19 @@ async function tradingWatcher() {
 
 
 
-function startTradingWatcher() {
+function startTradingWatcher(symbol = SYMBOL, interval = INTERVAL) {
   if (watcherInterval) {
     console.log("⚠️ Watcher already running");
     return;
   }
+  if (!/^[A-Z0-9]+$/.test(symbol)) {
+    throw new Error('Invalid trading symbol');
+  }
+  if (!Object.prototype.hasOwnProperty.call(INTERVAL_MS, interval)) {
+    throw new Error('Invalid trading interval');
+  }
+  currentSymbol = symbol;
+  currentInterval = interval;
   console.log("🚀 Starting trading watcher...");
 
   // Sync server time once at startup

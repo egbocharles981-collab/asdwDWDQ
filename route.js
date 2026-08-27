@@ -60,11 +60,13 @@ router.post('/trade', async (req, res) => {
 // ✅ 3️⃣ Start the Futures trading watcher loop
 router.post('/futures/start', async (req, res) => {
   try {
+    const symbol = typeof req.body?.symbol === 'string' ? req.body.symbol.trim().toUpperCase() : undefined;
+    const interval = typeof req.body?.interval === 'string' ? req.body.interval.trim() : undefined;
     // Support different export shapes (commonjs object, default export, or function)
     if (futuresController && typeof futuresController.startTradingWatcher === 'function') {
-      futuresController.startTradingWatcher();
+      futuresController.startTradingWatcher(symbol, interval);
     } else if (futuresController && futuresController.default && typeof futuresController.default.startTradingWatcher === 'function') {
-      futuresController.default.startTradingWatcher();
+      futuresController.default.startTradingWatcher(symbol, interval);
     } else if (typeof futuresController === 'function') {
       // some builds export a single function
       futuresController();
