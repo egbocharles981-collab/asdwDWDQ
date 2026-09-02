@@ -19,8 +19,8 @@ const SYMBOL = "BTCUSDT";
 const INTERVAL = "1h";
 const QUANTITY = 0.01; // Bybit contract qty may differ from Binance; adjust if needed
 const LEVERAGE = 50;
-const TP_PERCENT = 0.017;
-const SL_PERCENT = 0.009;
+const TP_PERCENT = 0.03;
+const SL_PERCENT = 0.015;
 const TRAILING_TRIGGER_RATIO = 0.4;
 const TRAILING_STOP_POINTS_ACTIVE = 200;
 const TRAILING_STOP_POINTS_REMAINING = 100;
@@ -391,7 +391,6 @@ async function getCandles() {
       throw err;
     }
   }
-
   const candles = (data.result?.list || []).map((c) => ({
     time: parseInt(c[0], 10),
     open: parseFloat(c[1]),

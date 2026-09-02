@@ -11,8 +11,8 @@ function formatQty(value, precision = 3) {
 function calculateSlTp({
   side,
   entryPrice,
-  tpPercent = 0.015,
-  slPercent = 0.007,
+  tpPercent = 0.03,
+  slPercent = 0.015,
   pricePrecision = 2,
 }) {
   if (!side || !Number.isFinite(entryPrice) || entryPrice <= 0) {
@@ -79,7 +79,7 @@ function buildExitOrderParams({ side, symbol = 'BTCUSDT', triggerPrice, qty, kin
   return params;
 }
 
-function buildSlTpOrders({ side, entryPrice, qty, tpPercent = 0.015, slPercent = 0.007, symbol = 'BTCUSDT' }) {
+function buildSlTpOrders({ side, entryPrice, qty, tpPercent = 0.03, slPercent = 0.015, symbol = 'BTCUSDT' }) {
   const { tp, sl } = calculateSlTp({ side, entryPrice, tpPercent, slPercent });
   const qty80 = formatQty(qty * 0.8, 3);
   const remainingQty = formatQty(qty - qty80, 3);
