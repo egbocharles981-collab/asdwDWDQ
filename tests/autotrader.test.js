@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { setLeverageIfPossible, buildExitOrderParams, buildSlTpOrders, extractPositionForSymbol, parsePositionEntryPrice, parsePositionQty, getNextTrailingStopPrice } = require('../autotrader');
+const { setLeverageIfPossible, buildExitOrderParams, buildSlTpOrders, extractPositionForSymbol, parsePositionEntryPrice, parsePositionQty, getNextTrailingStopPrice, getScaledPositionQty } = require('../autotrader');
 const { buildClosePositionOrder } = require('../closeAllTrades');
 
 test('returns true when leverage is already set and API reports unchanged', async () => {
@@ -85,6 +85,13 @@ test('moves a long stop only in the profit direction', () => {
   assert.equal(stop, 64640);
   const betterStop = getNextTrailingStopPrice('BUY', 64950, 200, 64640);
   assert.equal(betterStop, 64750);
+});
+
+test('increases lot size by 0.002 after every three successful trail activations', () => {
+  assert.equal(getScaledPositionQty(0), 0.005);
+  assert.equal(getScaledPositionQty(2), 0.005);
+  assert.equal(getScaledPositionQty(3), 0.007);
+  assert.equal(getScaledPositionQty(6), 0.009);
 });
 
 test('builds a valid Bybit close-all market order for linear contracts', () => {

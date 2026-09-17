@@ -17,7 +17,9 @@ const API_SECRET = process.env.API_SECRET;
 const BYBIT_BASE_URL = process.env.BYBIT_BASE_URL || 'https://api.bybit.com';
 const SYMBOL = "BTCUSDT";
 const INTERVAL = "1h";
-const QUANTITY = 0.01; // Bybit contract qty may differ from Binance; adjust if needed
+const QUANTITY = 0.005; // Base contract qty; increases after every 3 successful trailing activations
+const POSITION_QTY_STEP = 0.002;
+const TRAILING_ACTIVATIONS_PER_STEP = 3;
 const LEVERAGE = 50;
 const TP_PERCENT = 0.03;
 const SL_PERCENT = 0.015;
@@ -81,6 +83,12 @@ let lastPositionClosedAt = 0;
 let lastTradeTime = 0;
 let lastConfig = null;
 let isOpeningPosition = false; // Prevent concurrent position opens
+let successfulTrailActivations = 0;
+
+function getScaledPositionQty(successfulActivations = successfulTrailActivations) {
+  const steps = Math.floor(successfulActivations / TRAILING_ACTIVATIONS_PER_STEP);
+  return Number((QUANTITY + steps * POSITION_QTY_STEP).toFixed(QTY_PRECISION));
+}
 
 function formatQty(q) {
   const factor = 10 ** QTY_PRECISION;
@@ -530,8 +538,9 @@ async function openPosition(side) {
     }
 
     const availableBalance = await getWalletBalance();
+    const scaledQty = getScaledPositionQty();
     const maxQty = calculateMaxQty(availableBalance, price);
-    const orderQty = Math.min(QUANTITY, maxQty);
+    const orderQty = Math.min(scaledQty, maxQty);
 
     if (orderQty <= 0) {
       appendTradeLog(`❌ Entry Failed: Insufficient balance (${availableBalance} USDT) at price ${price}`);
@@ -539,9 +548,9 @@ async function openPosition(side) {
       return;
     }
 
-    if (orderQty < QUANTITY) {
-      appendTradeLog(`⚠️ Qty reduced: ${QUANTITY} → ${orderQty} (balance: ${availableBalance} USDT)`);
-      console.log(chalk.yellow(`⚠️ Reducing order qty from ${QUANTITY} to ${orderQty} due to available balance ${availableBalance} USDT`));
+    if (orderQty < scaledQty) {
+      appendTradeLog(`⚠️ Qty reduced: ${scaledQty} → ${orderQty} (balance: ${availableBalance} USDT)`);
+      console.log(chalk.yellow(`⚠️ Reducing order qty from ${scaledQty} to ${orderQty} due to available balance ${availableBalance} USDT`));
     }
 
     appendTradeLog(`📍 Entry Price: ${price} | Qty: ${orderQty} | Side: ${side}`);
@@ -678,6 +687,7 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
     let lastStopPrice = null;
     let partialTpClosed = false;
     let stopGapPoints = TRAILING_STOP_POINTS_ACTIVE;
+    let trailActivatedForThisPosition = false;
 
     while (currentPosition === side) {
       let positionInfo;
@@ -736,6 +746,13 @@ async function monitorTrailingStop(side, entryPrice, tp, sl, remainingQty = 0) {
       if (!reachedTrigger) {
         await sleep(5000);
         continue;
+      }
+
+      if (!trailActivatedForThisPosition) {
+        successfulTrailActivations += 1;
+        trailActivatedForThisPosition = true;
+        appendTradeLog(`✅ Trail activation #${successfulTrailActivations}: ${side} position reached trigger at ${price.toFixed(2)}`);
+        console.log(chalk.green(`✅ Successful trailing activation #${successfulTrailActivations} for ${side} at ${price.toFixed(2)}`));
       }
 
       if ((side === "BUY" && price >= tp) || (side === "SELL" && price <= tp)) {
@@ -852,6 +869,7 @@ module.exports = {
   extractPositionForSymbol,
   parsePositionEntryPrice,
   parsePositionQty,
+  getScaledPositionQty,
   bybitRequest,
   placeTP_SL,
   getTrailingStopPrice,
