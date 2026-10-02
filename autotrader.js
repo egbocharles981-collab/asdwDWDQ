@@ -26,6 +26,7 @@ const TRAILING_TRIGGER_RATIO = 0.6;
 const TRAILING_STOP_POINTS_ACTIVE = 200;
 const TRAILING_STOP_POINTS_REMAINING = 100;
 const TRAILING_POINT_SIZE = 1;
+const MIN_TRAILING_UPDATE_POINTS = 100;
 const INITIAL_TP_POINTS = 1000;
 const INITIAL_SL_POINTS = 500;
 
@@ -675,9 +676,17 @@ function getNextTrailingStopPrice(side, currentPrice, points, lastStopPrice = nu
   }
 
   if (side === "BUY") {
+    const profitMove = nextStopPrice - lastStopPrice;
+    if (profitMove < MIN_TRAILING_UPDATE_POINTS) {
+      return lastStopPrice;
+    }
     return Math.max(lastStopPrice, nextStopPrice);
   }
 
+  const profitMove = lastStopPrice - nextStopPrice;
+  if (profitMove < MIN_TRAILING_UPDATE_POINTS) {
+    return lastStopPrice;
+  }
   return Math.min(lastStopPrice, nextStopPrice);
 }
 

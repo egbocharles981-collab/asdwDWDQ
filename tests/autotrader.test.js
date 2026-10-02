@@ -87,6 +87,18 @@ test('moves a long stop only in the profit direction', () => {
   assert.equal(betterStop, 64750);
 });
 
+test('waits for at least 100 points of profit before moving the trailing stop', () => {
+  const buyNoMove = getNextTrailingStopPrice('BUY', 60650, 200, 60400);
+  const buyMove = getNextTrailingStopPrice('BUY', 60700, 200, 60400);
+  const shortNoMove = getNextTrailingStopPrice('SELL', 60350, 200, 60500);
+  const shortMove = getNextTrailingStopPrice('SELL', 60150, 200, 60500);
+
+  assert.equal(buyNoMove, 60400);
+  assert.equal(buyMove, 60500);
+  assert.equal(shortNoMove, 60500);
+  assert.equal(shortMove, 60350);
+});
+
 test('keeps lot size constant regardless of successful trail activations and respects configured size', () => {
   const original = getScaledPositionQty();
 
