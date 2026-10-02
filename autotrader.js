@@ -17,9 +17,8 @@ const API_SECRET = process.env.API_SECRET;
 const BYBIT_BASE_URL = process.env.BYBIT_BASE_URL || 'https://api.bybit.com';
 const SYMBOL = "BTCUSDT";
 const INTERVAL = "1h";
-const QUANTITY = 0.005; // Base contract qty; increases after every 3 successful trailing activations
-const POSITION_QTY_STEP = 0.002;
-const TRAILING_ACTIVATIONS_PER_STEP = 3;
+const DEFAULT_QUANTITY = 0.005;
+let configuredQty = DEFAULT_QUANTITY;
 const LEVERAGE = 50;
 const TP_PERCENT = 0.03;
 const SL_PERCENT = 0.015;
@@ -85,9 +84,17 @@ let lastConfig = null;
 let isOpeningPosition = false; // Prevent concurrent position opens
 let successfulTrailActivations = 0;
 
+function setTradingQty(newQty) {
+  const parsedQty = Number(newQty);
+  if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
+    throw new Error('Trading quantity must be a positive number');
+  }
+  configuredQty = Number(parsedQty.toFixed(3));
+  return configuredQty;
+}
+
 function getScaledPositionQty(successfulActivations = successfulTrailActivations) {
-  const steps = Math.floor(successfulActivations / TRAILING_ACTIVATIONS_PER_STEP);
-  return Number((QUANTITY + steps * POSITION_QTY_STEP).toFixed(QTY_PRECISION));
+  return configuredQty;
 }
 
 function formatQty(q) {
@@ -828,7 +835,7 @@ async function tradingWatcher() {
 
 
 
-function startTradingWatcher(symbol = SYMBOL, interval = INTERVAL) {
+function startTradingWatcher(symbol = SYMBOL, interval = INTERVAL, quantity = configuredQty) {
   if (watcherInterval) {
     console.log("⚠️ Watcher already running");
     return;
@@ -838,6 +845,9 @@ function startTradingWatcher(symbol = SYMBOL, interval = INTERVAL) {
   }
   if (!Object.prototype.hasOwnProperty.call(INTERVAL_MS, interval)) {
     throw new Error('Invalid trading interval');
+  }
+  if (quantity !== undefined && quantity !== null) {
+    setTradingQty(quantity);
   }
   currentSymbol = symbol;
   currentInterval = interval;
@@ -869,6 +879,7 @@ module.exports = {
   extractPositionForSymbol,
   parsePositionEntryPrice,
   parsePositionQty,
+  setTradingQty,
   getScaledPositionQty,
   bybitRequest,
   placeTP_SL,

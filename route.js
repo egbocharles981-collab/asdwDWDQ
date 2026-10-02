@@ -62,11 +62,18 @@ router.post('/futures/start', async (req, res) => {
   try {
     const symbol = typeof req.body?.symbol === 'string' ? req.body.symbol.trim().toUpperCase() : undefined;
     const interval = typeof req.body?.interval === 'string' ? req.body.interval.trim() : undefined;
+    const quantityValue = req.body?.quantity;
+    const quantity = Number(quantityValue);
+
+    if (quantityValue !== undefined && quantityValue !== null && (!Number.isFinite(quantity) || quantity <= 0)) {
+      return res.status(400).json({ success: false, message: 'Quantity must be a positive number.' });
+    }
+
     // Support different export shapes (commonjs object, default export, or function)
     if (futuresController && typeof futuresController.startTradingWatcher === 'function') {
-      futuresController.startTradingWatcher(symbol, interval);
+      futuresController.startTradingWatcher(symbol, interval, quantityValue !== undefined && quantityValue !== null ? quantity : undefined);
     } else if (futuresController && futuresController.default && typeof futuresController.default.startTradingWatcher === 'function') {
-      futuresController.default.startTradingWatcher(symbol, interval);
+      futuresController.default.startTradingWatcher(symbol, interval, quantityValue !== undefined && quantityValue !== null ? quantity : undefined);
     } else if (typeof futuresController === 'function') {
       // some builds export a single function
       futuresController();

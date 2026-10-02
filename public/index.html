@@ -185,10 +185,10 @@ document.addEventListener('DOMContentLoaded', () => {
 // Restore persisted UI selections
 document.addEventListener('DOMContentLoaded', () => {
   const pair = localStorage.getItem('pair') || null;
-  const qty = localStorage.getItem('qty') || null;
+  const qty = localStorage.getItem('qty') || '0.005';
   const timeframe = localStorage.getItem('timeframe') || null;
   if (pair) document.getElementById('pairSelect').value = pair;
-  if (qty) document.getElementById('qtyInput').value = qty;
+  document.getElementById('qtyInput').value = qty;
   if (timeframe) document.getElementById('timeframeSelect').value = timeframe;
 });
 
@@ -314,12 +314,17 @@ async function toggleTrading() {
   const interval = intervalMap[intervalMs] || '1m';
 
   try {
+    const quantity = Number(document.getElementById('qtyInput').value);
+    if (Number.isFinite(quantity) && quantity > 0) {
+      localStorage.setItem('qty', String(quantity));
+    }
+
     if (autoTrading) {
       // persist state
       localStorage.setItem('autoTrading', 'true');
       const base = getApiBaseUrl();
       if (!base) throw new Error('API base URL not available');
-      await axios.post(`${base}/api/futures/start`, { symbol, interval });
+      await axios.post(`${base}/api/futures/start`, { symbol, interval, quantity });
       statusEl.innerText = 'Running';
       button.innerText = 'Stop Auto Trading';
       logTrade('🟢 Auto trading started on backend.');
@@ -418,7 +423,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Persist selected pair, qty and timeframe
 document.getElementById('pairSelect').addEventListener('change', (e) => localStorage.setItem('pair', e.target.value));
-document.getElementById('qtyInput').addEventListener('change', (e) => localStorage.setItem('qty', e.target.value));
+document.getElementById('qtyInput').addEventListener('input', (e) => {
+  const value = Number(e.target.value);
+  if (Number.isFinite(value) && value > 0) localStorage.setItem('qty', String(value));
+});
+document.getElementById('qtyInput').addEventListener('change', (e) => {
+  const value = Number(e.target.value);
+  if (Number.isFinite(value) && value > 0) localStorage.setItem('qty', String(value));
+});
 document.getElementById('timeframeSelect').addEventListener('change', (e) => localStorage.setItem('timeframe', e.target.value));
 
 // On load, check server-side watcher status so UI can reflect running state across refreshes
@@ -444,8 +456,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const intervalMs = parseInt(document.getElementById('timeframeSelect').value);
         const intervalMap = { 60000: '1m', 300000: '5m', 900000: '15m', 3600000: '1h' };
         const interval = intervalMap[intervalMs] || '5m';
+        const quantity = Number(document.getElementById('qtyInput').value);
         const startUrl = base ? `${base}/api/futures/start` : '/api/futures/start';
-        await axios.post(startUrl, { symbol, interval });
+        await axios.post(startUrl, { symbol, interval, quantity: Number.isFinite(quantity) ? quantity : 0.005 });
         shouldRun = true;
       } catch (e) {
         console.warn('Failed to auto-start watcher from local preference', e);

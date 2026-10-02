@@ -87,11 +87,20 @@ test('moves a long stop only in the profit direction', () => {
   assert.equal(betterStop, 64750);
 });
 
-test('increases lot size by 0.002 after every three successful trail activations', () => {
+test('keeps lot size constant regardless of successful trail activations and respects configured size', () => {
+  const original = getScaledPositionQty();
+
   assert.equal(getScaledPositionQty(0), 0.005);
   assert.equal(getScaledPositionQty(2), 0.005);
-  assert.equal(getScaledPositionQty(3), 0.007);
-  assert.equal(getScaledPositionQty(6), 0.009);
+  assert.equal(getScaledPositionQty(3), 0.005);
+  assert.equal(getScaledPositionQty(100), 0.005);
+
+  const { setTradingQty } = require('../autotrader');
+  setTradingQty(0.02);
+  assert.equal(getScaledPositionQty(0), 0.02);
+  assert.equal(getScaledPositionQty(10), 0.02);
+
+  setTradingQty(original);
 });
 
 test('builds a valid Bybit close-all market order for linear contracts', () => {
